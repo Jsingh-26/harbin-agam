@@ -9,13 +9,17 @@ import { Exit } from './entities/Exit'
 import { Particle } from './entities/Particle'
 import { AudioManager } from './audio'
 
+export type PlayMode = '2p' | '1p'
+export type CharacterId = 'harbin' | 'agam'
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
 export class Game {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
   private width = 1280
   private height = 720
-  private harbin: Player
-  private agam: Player
+  private harbin: Player | null = null
+  private agam: Player | null = null
   private platforms: Platform[] = []
   private stars: Star[] = []
   private enemies: Enemy[] = []
@@ -26,78 +30,120 @@ export class Game {
   private particles: Particle[] = []
   private keys: Set<string> = new Set()
   private running = false
-  private difficulty: 'easy' | 'medium' | 'hard'
+  private difficulty: Difficulty
   private audioManager: AudioManager
   private winCallback: (harbinStars: number, agamStars: number) => void
   private cameraShake = 0
   private flashAlpha = 0
   private celebrationOverlay: { name: string, alpha: number } | null = null
+  private mode: PlayMode
+  private character: CharacterId
+  private onResize: () => void
+  private onKeyDown: (e: KeyboardEvent) => void
+  private onKeyUp: (e: KeyboardEvent) => void
+  private onViewportResize: () => void
 
-  constructor(canvas: HTMLCanvasElement, difficulty: 'easy' | 'medium' | 'hard', muted: boolean, winCallback: (harbinStars: number, agamStars: number) => void) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    difficulty: Difficulty,
+    muted: boolean,
+    winCallback: (harbinStars: number, agamStars: number) => void,
+    mode: PlayMode = '2p',
+    character: CharacterId = 'harbin'
+  ) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')!
     this.difficulty = difficulty
     this.winCallback = winCallback
     this.audioManager = new AudioManager(muted)
-    
+    this.mode = mode
+    this.character = character
+
+    this.onResize = () => this.resizeCanvas()
+    this.onViewportResize = () => this.resizeCanvas()
     this.resizeCanvas()
-    window.addEventListener('resize', () => this.resizeCanvas())
-    
-    // Create players
-    this.harbin = new Player(100, 500, '#00CED1', 'Harbin', 'w', 'a', 'd', 's')
-    this.agam = new Player(200, 500, '#FFA500', 'Agam', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown')
-    
-    // Create level
+    window.addEventListener('resize', this.onResize)
+    window.visualViewport?.addEventListener('resize', this.onViewportResize)
+
+    const spawn1p = this.mode === '1p'
+    if (!spawn1p || this.character === 'harbin') {
+      this.harbin = new Player(100, 500, '#00CED1', 'Harbin', 'w', 'a', 'd', 's')
+    }
+    if (!spawn1p || this.character === 'agam') {
+      this.agam = new Player(200, 500, '#FFA500', 'Agam', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown')
+    }
+
     this.createLevel()
-    
-    // Input
-    window.addEventListener('keydown', (e) => {
-      this.keys.add(e.key.toLowerCase())
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+
+    this.onKeyDown = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase()
+      this.keys.add(key)
+      if (
+        key === 'arrowup' || key === 'arrowdown' || key === 'arrowleft' || key === 'arrowright' ||
+        key === 'w' || key === 'a' || key === 's' || key === 'd' ||
+        key === ' '
+      ) {
         e.preventDefault()
       }
-    })
-    window.addEventListener('keyup', (e) => {
+    }
+    this.onKeyUp = (e: KeyboardEvent) => {
       this.keys.delete(e.key.toLowerCase())
-    })
-    
+    }
+    window.addEventListener('keydown', this.onKeyDown, { passive: false })
+    window.addEventListener('keyup', this.onKeyUp)
+
     this.switch = new Switch(640, 600)
     this.door = new Door(1100, 400)
     this.exit = new Exit(1150, 400)
   }
 
+  public pressKey(key: string) {
+    this.keys.add(key.toLowerCase())
+  }
+
+  public releaseKey(key: string) {
+    this.keys.delete(key.toLowerCase())
+  }
+
+  public getActiveCharacter(): CharacterId {
+    if (this.harbin && !this.agam) return 'harbin'
+    if (this.agam && !this.harbin) return 'agam'
+    return this.character
+  }
+
+  private get players(): Player[] {
+    return [this.harbin, this.agam].filter((p): p is Player => p !== null)
+  }
+
   private resizeCanvas() {
-    const container = this.canvas.parentElement!
-    const containerWidth = container.clientWidth
-    const containerHeight = container.clientHeight
-    
-    const scaleX = containerWidth / this.width
-    const scaleY = containerHeight / this.height
-    const scale = Math.min(scaleX, scaleY)
-    
+    const vw = window.visualViewport?.width ?? document.documentElement.clientWidth ?? window.innerWidth
+    const vh = window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight
+
+    const scale = Math.min(vw / this.width, vh / this.height)
+
     this.canvas.width = this.width
     this.canvas.height = this.height
-    this.canvas.style.width = `${this.width * scale}px`
-    this.canvas.style.height = `${this.height * scale}px`
+    this.canvas.style.width = `${Math.floor(this.width * scale)}px`
+    this.canvas.style.height = `${Math.floor(this.height * scale)}px`
   }
 
   private createLevel() {
     // Ground
     this.platforms.push(new Platform(0, 650, 1280, 70, '#2d5016'))
-    
+
     // Platforms based on difficulty
     this.platforms.push(new Platform(300, 550, 150, 20, '#8B4513'))
     this.platforms.push(new Platform(500, 450, 150, 20, '#8B4513'))
     this.platforms.push(new Platform(700, 350, 200, 20, '#8B4513'))
     this.platforms.push(new Platform(950, 450, 150, 20, '#8B4513'))
-    
+
     // Bouncy platforms
     this.platforms.push(new Platform(150, 500, 100, 15, '#FF1493', 'bouncy'))
     this.platforms.push(new Platform(1050, 580, 100, 15, '#FF1493', 'bouncy'))
-    
+
     // Moving platform
     this.platforms.push(new Platform(400, 250, 120, 15, '#00CED1', 'moving'))
-    
+
     // Stars
     const starCount = this.difficulty === 'easy' ? 8 : this.difficulty === 'medium' ? 12 : 16
     const starPositions = [
@@ -109,14 +155,14 @@ export class Game {
     for (let i = 0; i < starCount; i++) {
       this.stars.push(new Star(starPositions[i][0], starPositions[i][1]))
     }
-    
+
     // Enemies
     const enemyCount = this.difficulty === 'easy' ? 2 : this.difficulty === 'medium' ? 3 : 4
     const enemySpeed = this.difficulty === 'easy' ? 1 : this.difficulty === 'medium' ? 1.5 : 2
     for (let i = 0; i < enemyCount; i++) {
       this.enemies.push(new Enemy(400 + i * 250, 400, enemySpeed))
     }
-    
+
     // Spikes
     const spikeCount = this.difficulty === 'easy' ? 2 : this.difficulty === 'medium' ? 3 : 5
     const spikePositions = [[600, 630], [800, 630], [1000, 630], [450, 630], [350, 630]]
@@ -132,6 +178,11 @@ export class Game {
 
   public destroy() {
     this.running = false
+    window.removeEventListener('resize', this.onResize)
+    window.visualViewport?.removeEventListener('resize', this.onViewportResize)
+    window.removeEventListener('keydown', this.onKeyDown)
+    window.removeEventListener('keyup', this.onKeyUp)
+    this.keys.clear()
   }
 
   public setMuted(muted: boolean) {
@@ -140,146 +191,125 @@ export class Game {
 
   private gameLoop = () => {
     if (!this.running) return
-    
+
     this.update()
     this.render()
-    
+
     requestAnimationFrame(this.gameLoop)
   }
 
+  private handlePlayerHazards(player: Player) {
+    this.enemies.forEach(enemy => {
+      if (player.checkCollision(enemy.x, enemy.y, enemy.width, enemy.height)) {
+        if (player.vy > 0 && player.y + player.height < enemy.y + enemy.height / 2) {
+          player.bounce()
+          enemy.squash()
+          this.audioManager.playJump()
+        } else {
+          player.takeDamage()
+          this.audioManager.playHurt()
+          this.cameraShake = 10
+        }
+      }
+    })
+
+    this.spikes.forEach(spike => {
+      if (player.checkCollision(spike.x, spike.y, spike.width, spike.height)) {
+        player.takeDamage()
+        this.audioManager.playHurt()
+        this.cameraShake = 10
+      }
+    })
+  }
+
   private update() {
-    // Update players
-    this.harbin.update(this.keys, this.platforms)
-    this.agam.update(this.keys, this.platforms)
-    
-    // Update moving platforms
+    for (const player of this.players) {
+      player.update(this.keys, this.platforms)
+    }
+
     this.platforms.forEach(p => p.update())
-    
-    // Update enemies
     this.enemies.forEach(e => e.update(this.platforms))
-    
-    // Update particles
+
     this.particles = this.particles.filter(p => {
       p.update()
       return p.life > 0
     })
-    
-    // Check star collection
+
     this.stars = this.stars.filter(star => {
-      if (this.harbin.checkCollision(star.x, star.y, star.size, star.size)) {
-        this.harbin.collectStar()
-        this.audioManager.playCollect()
-        this.audioManager.speak(`Well done ${this.harbin.name}!`)
-        this.createStarBurst(star.x, star.y, this.harbin.color)
-        this.showCelebration(this.harbin.name)
-        return false
-      }
-      if (this.agam.checkCollision(star.x, star.y, star.size, star.size)) {
-        this.agam.collectStar()
-        this.audioManager.playCollect()
-        this.audioManager.speak(`Well done ${this.agam.name}!`)
-        this.createStarBurst(star.x, star.y, this.agam.color)
-        this.showCelebration(this.agam.name)
-        return false
+      for (const player of this.players) {
+        if (player.checkCollision(star.x, star.y, star.size, star.size)) {
+          player.collectStar()
+          this.audioManager.playCollect()
+          this.audioManager.speak(`Well done ${player.name}!`)
+          this.createStarBurst(star.x, star.y, player.color)
+          this.showCelebration(player.name)
+          return false
+        }
       }
       return true
     })
-    
-    // Check enemy collision
-    this.enemies.forEach(enemy => {
-      if (this.harbin.checkCollision(enemy.x, enemy.y, enemy.width, enemy.height)) {
-        if (this.harbin.vy > 0 && this.harbin.y + this.harbin.height < enemy.y + enemy.height / 2) {
-          this.harbin.bounce()
-          enemy.squash()
-          this.audioManager.playJump()
-        } else {
-          this.harbin.takeDamage()
-          this.audioManager.playHurt()
-          this.cameraShake = 10
-        }
-      }
-      if (this.agam.checkCollision(enemy.x, enemy.y, enemy.width, enemy.height)) {
-        if (this.agam.vy > 0 && this.agam.y + this.agam.height < enemy.y + enemy.height / 2) {
-          this.agam.bounce()
-          enemy.squash()
-          this.audioManager.playJump()
-        } else {
-          this.agam.takeDamage()
-          this.audioManager.playHurt()
-          this.cameraShake = 10
-        }
-      }
-    })
-    
-    // Check spike collision
-    this.spikes.forEach(spike => {
-      if (this.harbin.checkCollision(spike.x, spike.y, spike.width, spike.height)) {
-        this.harbin.takeDamage()
-        this.audioManager.playHurt()
-        this.cameraShake = 10
-      }
-      if (this.agam.checkCollision(spike.x, spike.y, spike.width, spike.height)) {
-        this.agam.takeDamage()
-        this.audioManager.playHurt()
-        this.cameraShake = 10
-      }
-    })
-    
-    // Check switch interaction
-    const harbinNearSwitch = this.harbin.checkCollision(
-      this.switch.x - 20,
-      this.switch.y - 20,
-      this.switch.width + 40,
-      this.switch.height + 40
-    )
-    const agamNearSwitch = this.agam.checkCollision(
-      this.switch.x - 20,
-      this.switch.y - 20,
-      this.switch.width + 40,
-      this.switch.height + 40
-    )
-    
-    this.switch.setPlayerNear(harbinNearSwitch, agamNearSwitch, this.harbin.name, this.agam.name)
-    
-    if (harbinNearSwitch && this.keys.has(this.harbin.actionKey)) {
-      if (!this.door.isOpen) {
+
+    for (const player of this.players) {
+      this.handlePlayerHazards(player)
+    }
+
+    // Switch: stand nearby and press ACTION to open the door
+    const nearPlayers: Player[] = []
+    for (const player of this.players) {
+      const near = player.checkCollision(
+        this.switch.x - 20,
+        this.switch.y - 20,
+        this.switch.width + 40,
+        this.switch.height + 40
+      )
+      if (near) nearPlayers.push(player)
+    }
+
+    if (nearPlayers.length > 0 && !this.door.isOpen) {
+      const p = nearPlayers[0]
+      const hint = this.mode === '1p'
+        ? `${p.name}: tap ACTION to OPEN THE DOOR`
+        : p.name === 'Harbin'
+          ? 'Harbin: press S to OPEN THE DOOR'
+          : 'Agam: press ↓ to OPEN THE DOOR'
+      this.switch.setPrompt(hint)
+    } else {
+      this.switch.setPrompt(null)
+    }
+
+    for (const player of nearPlayers) {
+      if (this.keys.has(player.actionKey) && !this.door.isOpen) {
         this.door.open()
         this.audioManager.playSwitch()
         this.flashAlpha = 0.5
+        this.switch.setPrompt(null)
       }
     }
-    if (agamNearSwitch && this.keys.has(this.agam.actionKey.toLowerCase())) {
-      if (!this.door.isOpen) {
-        this.door.open()
-        this.audioManager.playSwitch()
-        this.flashAlpha = 0.5
-      }
-    }
-    
-    // Check win condition
+
+    // Win: door open + reach rainbow EXIT (any active player)
     if (this.door.isOpen) {
-      const harbinAtExit = this.harbin.checkCollision(this.exit.x, this.exit.y, this.exit.width, this.exit.height)
-      const agamAtExit = this.agam.checkCollision(this.exit.x, this.exit.y, this.exit.width, this.exit.height)
-      
-      if (harbinAtExit || agamAtExit) {
+      const someoneAtExit = this.players.some(player =>
+        player.checkCollision(this.exit.x, this.exit.y, this.exit.width, this.exit.height)
+      )
+
+      if (someoneAtExit) {
         this.audioManager.playWin()
         this.running = false
         setTimeout(() => {
-          this.winCallback(this.harbin.starsCollected, this.agam.starsCollected)
+          this.winCallback(this.harbin?.starsCollected ?? 0, this.agam?.starsCollected ?? 0)
         }, 1000)
       }
     }
-    
-    // Update effects
+
     if (this.cameraShake > 0) {
       this.cameraShake *= 0.9
       if (this.cameraShake < 0.1) this.cameraShake = 0
     }
-    
+
     if (this.flashAlpha > 0) {
       this.flashAlpha -= 0.02
     }
-    
+
     if (this.celebrationOverlay) {
       this.celebrationOverlay.alpha -= 0.008
       if (this.celebrationOverlay.alpha <= 0) {
@@ -290,138 +320,105 @@ export class Game {
 
   private render() {
     this.ctx.save()
-    
-    // Camera shake
+
     if (this.cameraShake > 0) {
       const shakeX = (Math.random() - 0.5) * this.cameraShake
       const shakeY = (Math.random() - 0.5) * this.cameraShake
       this.ctx.translate(shakeX, shakeY)
     }
-    
-    // Clear
+
     const gradient = this.ctx.createLinearGradient(0, 0, 0, this.height)
     gradient.addColorStop(0, '#87CEEB')
     gradient.addColorStop(1, '#B0E0E6')
     this.ctx.fillStyle = gradient
     this.ctx.fillRect(0, 0, this.width, this.height)
-    
-    // Render platforms
+
     this.platforms.forEach(p => p.render(this.ctx))
-    
-    // Render door first (behind)
     this.door.render(this.ctx)
-    
-    // Render exit
     this.exit.render(this.ctx)
-    
-    // Render switch
     this.switch.render(this.ctx)
-    
-    // Render stars
     this.stars.forEach(s => s.render(this.ctx))
-    
-    // Render enemies
     this.enemies.forEach(e => e.render(this.ctx))
-    
-    // Render spikes
     this.spikes.forEach(s => s.render(this.ctx))
-    
-    // Render players
-    this.harbin.render(this.ctx)
-    this.agam.render(this.ctx)
-    
-    // Render particles
+
+    for (const player of this.players) {
+      player.render(this.ctx)
+    }
+
     this.particles.forEach(p => p.render(this.ctx))
-    
-    // HUD
+
     this.renderHUD()
-    
-    // Flash effect
+
     if (this.flashAlpha > 0) {
       this.ctx.fillStyle = `rgba(255, 255, 255, ${this.flashAlpha})`
       this.ctx.fillRect(0, 0, this.width, this.height)
     }
-    
-    // Celebration overlay
+
     if (this.celebrationOverlay) {
       this.ctx.fillStyle = `rgba(255, 255, 255, ${this.celebrationOverlay.alpha * 0.8})`
       this.ctx.fillRect(0, 0, this.width, this.height)
-      
-      this.ctx.fillStyle = `rgba(0, 0, 0, ${this.celebrationOverlay.alpha})`
-      this.ctx.font = 'bold 80px Arial'
+
+      this.ctx.font = 'bold 72px Arial'
       this.ctx.textAlign = 'center'
       this.ctx.textBaseline = 'middle'
       const text = `Well done ${this.celebrationOverlay.name}!`
+      this.ctx.fillStyle = `rgba(0, 0, 0, ${this.celebrationOverlay.alpha})`
       this.ctx.fillText(text, this.width / 2, this.height / 2)
-      
       this.ctx.fillStyle = `rgba(255, 215, 0, ${this.celebrationOverlay.alpha})`
       this.ctx.fillText(text, this.width / 2 - 2, this.height / 2 - 2)
     }
-    
+
     this.ctx.restore()
   }
 
-  private renderHUD() {
+  private renderPlayerHud(player: Player, side: 'left' | 'right') {
     const padding = 20
-    
-    // Harbin HUD
-    this.ctx.fillStyle = 'rgba(0, 206, 209, 0.8)'
-    this.ctx.fillRect(padding, padding, 200, 80)
-    
+    const boxW = 200
+    const boxH = 80
+    const x = side === 'left' ? padding : this.width - padding - boxW
+
+    this.ctx.fillStyle = player.name === 'Harbin' ? 'rgba(0, 206, 209, 0.8)' : 'rgba(255, 165, 0, 0.8)'
+    this.ctx.fillRect(x, padding, boxW, boxH)
+
     this.ctx.fillStyle = 'white'
     this.ctx.font = 'bold 24px Arial'
-    this.ctx.textAlign = 'left'
-    this.ctx.fillText('Harbin', padding + 10, padding + 30)
-    
-    // Hearts
-    for (let i = 0; i < this.harbin.maxHealth; i++) {
-      this.ctx.fillStyle = i < this.harbin.health ? '#ff0000' : '#555'
+    this.ctx.textAlign = side === 'left' ? 'left' : 'right'
+    const nameX = side === 'left' ? x + 10 : x + boxW - 10
+    this.ctx.fillText(player.name, nameX, padding + 30)
+
+    for (let i = 0; i < player.maxHealth; i++) {
+      this.ctx.fillStyle = i < player.health ? '#ff0000' : '#555'
       this.ctx.beginPath()
-      this.ctx.arc(padding + 10 + i * 25, padding + 55, 8, 0, Math.PI * 2)
+      const hx = side === 'left' ? x + 10 + i * 25 : x + boxW - 10 - i * 25
+      this.ctx.arc(hx, padding + 55, 8, 0, Math.PI * 2)
       this.ctx.fill()
     }
-    
-    // Stars
-    this.ctx.fillStyle = '#FFD700'
-    this.ctx.fillText(`⭐ × ${this.harbin.starsCollected}`, padding + 100, padding + 60)
-    
-    // Agam HUD
-    this.ctx.fillStyle = 'rgba(255, 165, 0, 0.8)'
-    this.ctx.fillRect(this.width - padding - 200, padding, 200, 80)
-    
-    this.ctx.fillStyle = 'white'
-    this.ctx.font = 'bold 24px Arial'
-    this.ctx.textAlign = 'right'
-    this.ctx.fillText('Agam', this.width - padding - 10, padding + 30)
-    
-    // Hearts
-    for (let i = 0; i < this.agam.maxHealth; i++) {
-      this.ctx.fillStyle = i < this.agam.health ? '#ff0000' : '#555'
-      this.ctx.beginPath()
-      this.ctx.arc(this.width - padding - 10 - i * 25, padding + 55, 8, 0, Math.PI * 2)
-      this.ctx.fill()
-    }
-    
-    // Stars
+
     this.ctx.fillStyle = '#FFD700'
     this.ctx.textAlign = 'left'
-    this.ctx.fillText(`⭐ × ${this.agam.starsCollected}`, this.width - padding - 190, padding + 60)
-    
-    // Goal message
+    this.ctx.fillText(`⭐ × ${player.starsCollected}`, x + 100, padding + 60)
+  }
+
+  private renderHUD() {
+    if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
+    if (this.agam) this.renderPlayerHud(this.agam, 'right')
+
+    // Goal message — keep it above the bottom so touch thumbs don't hide it
+    const bannerY = this.height - 90
     if (!this.door.isOpen) {
       this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-      this.ctx.fillRect(this.width / 2 - 250, this.height - 80, 500, 60)
+      this.ctx.fillRect(this.width / 2 - 280, bannerY, 560, 60)
       this.ctx.fillStyle = '#FFD700'
       this.ctx.font = 'bold 20px Arial'
       this.ctx.textAlign = 'center'
-      this.ctx.fillText('Open the door, then reach the rainbow!', this.width / 2, this.height - 50)
+      this.ctx.fillText('Stand on the switch, press ACTION, then rainbow EXIT!', this.width / 2, bannerY + 38)
     } else {
       this.ctx.fillStyle = 'rgba(0, 200, 0, 0.7)'
-      this.ctx.fillRect(this.width / 2 - 250, this.height - 80, 500, 60)
+      this.ctx.fillRect(this.width / 2 - 280, bannerY, 560, 60)
       this.ctx.fillStyle = 'white'
       this.ctx.font = 'bold 22px Arial'
       this.ctx.textAlign = 'center'
-      this.ctx.fillText('DOOR OPEN — go to the rainbow!', this.width / 2, this.height - 50)
+      this.ctx.fillText('DOOR OPEN — go to the rainbow EXIT!', this.width / 2, bannerY + 38)
     }
   }
 

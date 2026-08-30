@@ -1,85 +1,99 @@
 import './style.css'
 import { Game } from './game'
+import type { CharacterId, Difficulty, PlayMode } from './game'
+
+type DeviceChoice = 'laptop' | 'phone' | 'ipad'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 
-// Create mute button
 const muteButton = document.createElement('button')
 muteButton.className = 'mute-button'
+muteButton.type = 'button'
+muteButton.setAttribute('aria-label', 'Mute')
 muteButton.innerHTML = '🔊'
 document.body.appendChild(muteButton)
 
-// Create screens
+function detectDefaultDevice(): DeviceChoice {
+  const wide = window.innerWidth >= 1024
+  const fine = window.matchMedia('(pointer: fine)').matches
+  const hover = window.matchMedia('(hover: hover)').matches
+  const coarse = window.matchMedia('(pointer: coarse)').matches
+
+  // Laptop/desktop: width >= 1024 AND a fine pointer/hover if available, otherwise width >= 1024
+  if (coarse && !hover) return window.innerWidth >= 768 ? 'ipad' : 'phone'
+  if (wide && (fine || hover)) return 'laptop'
+  if (wide && !coarse) return 'laptop'
+  if (wide) return 'laptop'
+
+  // Tablets (including iPad) are typically coarse-pointer and mid-width
+  if (coarse && window.innerWidth >= 768) return 'ipad'
+  return 'phone'
+}
+
+let selectedDevice: DeviceChoice = detectDefaultDevice()
+let selectedDifficulty: Difficulty = 'easy'
+let selectedCharacter: CharacterId = 'harbin'
+let isMuted = false
+let game: Game | null = null
+let gamePlaying = false
+
+function isTouchDevice(device: DeviceChoice): boolean {
+  return device === 'phone' || device === 'ipad'
+}
+
+function playModeFor(device: DeviceChoice): PlayMode {
+  return isTouchDevice(device) ? '1p' : '2p'
+}
+
+// ---------- screens ----------
 const titleScreen = document.createElement('div')
 titleScreen.className = 'screen active'
 titleScreen.id = 'title-screen'
 titleScreen.innerHTML = `
-  <h1 class="title">Harbin & Agam</h1>
-  <p class="subtitle">2-Player Adventure!</p>
-  <button class="button" id="play-button">PLAY!</button>
-  <p class="subtitle">Pick Difficulty:</p>
-  <div class="difficulty-buttons">
-    <button class="button" data-difficulty="easy">EASY ⭐</button>
-    <button class="button secondary" data-difficulty="medium">MEDIUM ⭐⭐</button>
-    <button class="button danger" data-difficulty="hard">HARD ⭐⭐⭐</button>
+  <h1 class="title">Harbin &amp; Agam</h1>
+  <p class="subtitle" id="title-subtitle">A kids adventure!</p>
+
+  <p class="section-label">What are you playing on?</p>
+  <div class="choice-row" id="device-buttons">
+    <button class="button" type="button" data-device="laptop">Laptop</button>
+    <button class="button secondary" type="button" data-device="phone">Phone</button>
+    <button class="button" type="button" data-device="ipad" style="background:#7c3aed;box-shadow:0 8px 0 #5b21b6, 0 12px 20px rgba(0,0,0,0.3);">iPad</button>
+  </div>
+  <p class="hint" id="device-hint"></p>
+
+  <p class="section-label">Pick Difficulty:</p>
+  <div class="difficulty-buttons" id="difficulty-buttons">
+    <button class="button" type="button" data-difficulty="easy">EASY ⭐</button>
+    <button class="button secondary" type="button" data-difficulty="medium">MEDIUM ⭐⭐</button>
+    <button class="button danger" type="button" data-difficulty="hard">HARD ⭐⭐⭐</button>
+  </div>
+
+  <button class="button play-cta" type="button" id="play-button">PLAY!</button>
+`
+
+const characterScreen = document.createElement('div')
+characterScreen.className = 'screen'
+characterScreen.id = 'character-screen'
+characterScreen.innerHTML = `
+  <h1 class="title">Who is playing?</h1>
+  <p class="subtitle">Only that child is in the level</p>
+  <div class="character-row">
+    <button class="character-card harbin" type="button" data-character="harbin">
+      <span class="character-swatch" style="background:#00CED1;"></span>
+      <span class="character-name">Harbin</span>
+      <span class="character-meta">Girl · older · cyan</span>
+    </button>
+    <button class="character-card agam" type="button" data-character="agam">
+      <span class="character-swatch" style="background:#FFA500;"></span>
+      <span class="character-name">Agam</span>
+      <span class="character-meta">Boy · younger · orange</span>
+    </button>
   </div>
 `
 
 const howToScreen = document.createElement('div')
 howToScreen.className = 'screen'
 howToScreen.id = 'howto-screen'
-howToScreen.innerHTML = `
-  <h1 class="title">How to Play</h1>
-  <div class="controls">
-    <div class="player-controls" style="background: rgba(0, 206, 209, 0.3);">
-      <h3 style="color: #00CED1;">Harbin</h3>
-      <div class="control-item">
-        <span class="key">W</span>
-        <span>Jump</span>
-      </div>
-      <div class="control-item">
-        <span class="key">A</span>
-        <span>Left</span>
-      </div>
-      <div class="control-item">
-        <span class="key">D</span>
-        <span>Right</span>
-      </div>
-      <div class="control-item">
-        <span class="key">S</span>
-        <span>Action</span>
-      </div>
-    </div>
-    <div class="player-controls" style="background: rgba(255, 165, 0, 0.3);">
-      <h3 style="color: #FFA500;">Agam</h3>
-      <div class="control-item">
-        <span class="key">↑</span>
-        <span>Jump</span>
-      </div>
-      <div class="control-item">
-        <span class="key">←</span>
-        <span>Left</span>
-      </div>
-      <div class="control-item">
-        <span class="key">→</span>
-        <span>Right</span>
-      </div>
-      <div class="control-item">
-        <span class="key">↓</span>
-        <span>Action</span>
-      </div>
-    </div>
-  </div>
-  <div class="instructions">
-    <ul class="instruction-list">
-      <li><span class="emoji">🏃</span> Move and jump around the level</li>
-      <li><span class="emoji">⭐</span> Grab all the sparkling stars</li>
-      <li><span class="emoji">🔘</span> Stand on the glowing switch and press ACTION to open the door</li>
-      <li><span class="emoji">🌈</span> Both walk through the rainbow EXIT to win!</li>
-    </ul>
-  </div>
-  <button class="button" id="start-button">START GAME!</button>
-`
 
 const winScreen = document.createElement('div')
 winScreen.className = 'screen'
@@ -87,65 +101,126 @@ winScreen.id = 'win-screen'
 winScreen.innerHTML = `
   <h1 class="title">🎉 YOU WIN! 🎉</h1>
   <div class="win-stats" id="win-stats"></div>
-  <button class="button" id="play-again-button">PLAY AGAIN</button>
+  <button class="button" type="button" id="play-again-button">PLAY AGAIN</button>
+  <button class="button secondary" type="button" id="home-button">HOME</button>
 `
 
 app.appendChild(titleScreen)
+app.appendChild(characterScreen)
 app.appendChild(howToScreen)
 app.appendChild(winScreen)
 
-// Create canvas
 const canvas = document.createElement('canvas')
+canvas.id = 'game-canvas'
 app.appendChild(canvas)
 
-// Game instance
-let game: Game | null = null
-let selectedDifficulty: 'easy' | 'medium' | 'hard' = 'easy'
-let isMuted = false
+// ---------- touch controls (shown only during 1P play) ----------
+const touchControls = document.createElement('div')
+touchControls.className = 'touch-controls hidden'
+touchControls.id = 'touch-controls'
+touchControls.innerHTML = `
+  <div class="touch-cluster touch-left">
+    <button class="touch-btn" type="button" data-touch="left" aria-label="Left">◀</button>
+    <button class="touch-btn" type="button" data-touch="right" aria-label="Right">▶</button>
+  </div>
+  <div class="touch-cluster touch-right">
+    <button class="touch-btn touch-action" type="button" data-touch="action">ACTION</button>
+    <button class="touch-btn touch-jump" type="button" data-touch="jump">JUMP</button>
+  </div>
+`
+document.body.appendChild(touchControls)
 
-// Audio context for background music
+function keysForCharacter(character: CharacterId): Record<'left' | 'right' | 'jump' | 'action', string> {
+  if (character === 'harbin') {
+    return { left: 'a', right: 'd', jump: 'w', action: 's' }
+  }
+  return { left: 'arrowleft', right: 'arrowright', jump: 'arrowup', action: 'arrowdown' }
+}
+
+function bindHoldButton(el: HTMLElement, onDown: () => void, onUp: () => void) {
+  const pointers = new Set<number>()
+  const down = (e: PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (pointers.has(e.pointerId)) return
+    pointers.add(e.pointerId)
+    try { el.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+    el.classList.add('pressed')
+    onDown()
+  }
+  const up = (e: PointerEvent) => {
+    if (!pointers.has(e.pointerId)) return
+    pointers.delete(e.pointerId)
+    e.preventDefault()
+    if (pointers.size === 0) {
+      el.classList.remove('pressed')
+      onUp()
+    }
+  }
+  el.addEventListener('pointerdown', down)
+  el.addEventListener('pointerup', up)
+  el.addEventListener('pointercancel', up)
+  el.addEventListener('lostpointercapture', up)
+  el.addEventListener('contextmenu', (e) => e.preventDefault())
+}
+
+touchControls.querySelectorAll<HTMLElement>('[data-touch]').forEach((btn) => {
+  const action = btn.dataset.touch as 'left' | 'right' | 'jump' | 'action'
+  bindHoldButton(
+    btn,
+    () => {
+      if (!game) return
+      const map = keysForCharacter(selectedCharacter)
+      game.pressKey(map[action])
+    },
+    () => {
+      if (!game) return
+      const map = keysForCharacter(selectedCharacter)
+      game.releaseKey(map[action])
+    }
+  )
+})
+
+function showTouchControls(show: boolean) {
+  touchControls.classList.toggle('hidden', !show)
+}
+
+// ---------- audio ----------
 let audioContext: AudioContext | null = null
 let backgroundGainNode: GainNode | null = null
-let backgroundOscillator: OscillatorNode | null = null
+let musicTimer: number | null = null
 
 function startBackgroundMusic() {
-  if (!audioContext) {
-    audioContext = new AudioContext()
-    backgroundGainNode = audioContext.createGain()
-    backgroundGainNode.connect(audioContext.destination)
-    backgroundGainNode.gain.value = isMuted ? 0 : 0.02
-    
-    // Simple happy melody loop
-    const notes = [262, 294, 330, 392, 330, 294] // C D E G E D
-    let noteIndex = 0
-    
-    function playNote() {
-      if (!audioContext || !backgroundGainNode) return
-      
-      const osc = audioContext.createOscillator()
-      const gain = audioContext.createGain()
-      
-      osc.connect(gain)
-      gain.connect(backgroundGainNode)
-      
-      osc.frequency.value = notes[noteIndex]
-      osc.type = 'sine'
-      
-      gain.gain.setValueAtTime(0.02, audioContext.currentTime)
-      gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.4)
-      
-      osc.start()
-      osc.stop(audioContext.currentTime + 0.4)
-      
-      noteIndex = (noteIndex + 1) % notes.length
-    }
-    
-    setInterval(playNote, 400)
+  if (audioContext) return
+  audioContext = new AudioContext()
+  backgroundGainNode = audioContext.createGain()
+  backgroundGainNode.connect(audioContext.destination)
+  backgroundGainNode.gain.value = isMuted ? 0 : 0.02
+
+  const notes = [262, 294, 330, 392, 330, 294]
+  let noteIndex = 0
+
+  function playNote() {
+    if (!audioContext || !backgroundGainNode) return
+    const osc = audioContext.createOscillator()
+    const gain = audioContext.createGain()
+    osc.connect(gain)
+    gain.connect(backgroundGainNode)
+    osc.frequency.value = notes[noteIndex]
+    osc.type = 'sine'
+    gain.gain.setValueAtTime(0.02, audioContext.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.4)
+    osc.start()
+    osc.stop(audioContext.currentTime + 0.4)
+    noteIndex = (noteIndex + 1) % notes.length
   }
+
+  musicTimer = window.setInterval(playNote, 400)
 }
 
 function updateMuteButton() {
   muteButton.innerHTML = isMuted ? '🔇' : '🔊'
+  muteButton.setAttribute('aria-label', isMuted ? 'Unmute' : 'Mute')
   if (backgroundGainNode) {
     backgroundGainNode.gain.value = isMuted ? 0 : 0.02
   }
@@ -154,57 +229,207 @@ function updateMuteButton() {
 muteButton.addEventListener('click', () => {
   isMuted = !isMuted
   updateMuteButton()
-  if (game) {
-    game.setMuted(isMuted)
-  }
+  if (game) game.setMuted(isMuted)
 })
 
-// Title screen - difficulty selection
-titleScreen.querySelectorAll('[data-difficulty]').forEach(btn => {
+// ---------- UI helpers ----------
+function showScreen(el: HTMLElement | null) {
+  document.querySelectorAll('.screen').forEach((s) => s.classList.remove('active'))
+  el?.classList.add('active')
+}
+
+function markChoice(container: HTMLElement, selector: string, value: string, attr: string) {
+  container.querySelectorAll(selector).forEach((btn) => {
+    btn.classList.toggle('active', (btn as HTMLElement).dataset[attr] === value)
+  })
+}
+
+function updateDeviceHint() {
+  const hint = document.getElementById('device-hint')
+  const subtitle = document.getElementById('title-subtitle')
+  if (!hint || !subtitle) return
+  if (selectedDevice === 'laptop') {
+    subtitle.textContent = 'Same-screen 2-player adventure!'
+    hint.textContent = 'Laptop: Harbin uses WASD, Agam uses arrow keys. Both play at the same time.'
+  } else if (selectedDevice === 'ipad') {
+    subtitle.textContent = 'Single-player touch adventure!'
+    hint.textContent = 'iPad: one player with on-screen buttons. Pick Harbin or Agam next.'
+  } else {
+    subtitle.textContent = 'Single-player touch adventure!'
+    hint.textContent = 'Phone: one player with on-screen buttons. Pick Harbin or Agam next.'
+  }
+}
+
+function fillHowTo() {
+  const touch = isTouchDevice(selectedDevice)
+  const kid = selectedCharacter === 'harbin' ? 'Harbin' : 'Agam'
+  const color = selectedCharacter === 'harbin' ? '#00CED1' : '#FFA500'
+
+  if (touch) {
+    howToScreen.innerHTML = `
+      <h1 class="title">How to Play</h1>
+      <p class="subtitle" style="color:${color};">You are ${kid}!</p>
+      <div class="controls">
+        <div class="player-controls">
+          <h3>Touch buttons</h3>
+          <div class="control-item"><span class="key">◀ ▶</span><span>Move</span></div>
+          <div class="control-item"><span class="key">JUMP</span><span>Jump</span></div>
+          <div class="control-item"><span class="key">ACTION</span><span>Open the door</span></div>
+        </div>
+      </div>
+      <div class="instructions">
+        <ul class="instruction-list">
+          <li><span class="emoji">🏃</span> Move and jump with the big buttons</li>
+          <li><span class="emoji">⭐</span> Grab the sparkling stars</li>
+          <li><span class="emoji">🔘</span> Stand near the glowing switch, then press ACTION to OPEN THE DOOR</li>
+          <li><span class="emoji">🌈</span> Walk through the rainbow EXIT to win!</li>
+        </ul>
+      </div>
+      <button class="button" type="button" id="start-button">START GAME!</button>
+    `
+  } else {
+    howToScreen.innerHTML = `
+      <h1 class="title">How to Play</h1>
+      <p class="subtitle">Both play at the same time — not turns!</p>
+      <div class="controls">
+        <div class="player-controls" style="background: rgba(0, 206, 209, 0.3);">
+          <h3 style="color: #00CED1;">Harbin</h3>
+          <div class="control-item"><span class="key">W</span><span>Jump</span></div>
+          <div class="control-item"><span class="key">A</span><span>Left</span></div>
+          <div class="control-item"><span class="key">D</span><span>Right</span></div>
+          <div class="control-item"><span class="key">S</span><span>ACTION</span></div>
+        </div>
+        <div class="player-controls" style="background: rgba(255, 165, 0, 0.3);">
+          <h3 style="color: #FFA500;">Agam</h3>
+          <div class="control-item"><span class="key">↑</span><span>Jump</span></div>
+          <div class="control-item"><span class="key">←</span><span>Left</span></div>
+          <div class="control-item"><span class="key">→</span><span>Right</span></div>
+          <div class="control-item"><span class="key">↓</span><span>ACTION</span></div>
+        </div>
+      </div>
+      <div class="instructions">
+        <ul class="instruction-list">
+          <li><span class="emoji">🏃</span> Move and jump around the level</li>
+          <li><span class="emoji">⭐</span> Grab all the sparkling stars</li>
+          <li><span class="emoji">🔘</span> Stand near the glowing switch and press ACTION to OPEN THE DOOR</li>
+          <li><span class="emoji">🌈</span> Reach the rainbow EXIT to win!</li>
+        </ul>
+      </div>
+      <button class="button" type="button" id="start-button">START GAME!</button>
+    `
+  }
+
+  document.getElementById('start-button')?.addEventListener('click', () => {
+    showScreen(null)
+    startBackgroundMusic()
+    startGame()
+  })
+}
+
+function syncTitleChoices() {
+  markChoice(titleScreen, '[data-device]', selectedDevice, 'device')
+  markChoice(titleScreen, '[data-difficulty]', selectedDifficulty, 'difficulty')
+  updateDeviceHint()
+}
+
+titleScreen.querySelectorAll('[data-device]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    selectedDifficulty = (btn as HTMLElement).dataset.difficulty as 'easy' | 'medium' | 'hard'
-    titleScreen.querySelectorAll('[data-difficulty]').forEach(b => b.classList.remove('active'))
-    btn.classList.add('active')
+    selectedDevice = (btn as HTMLElement).dataset.device as DeviceChoice
+    syncTitleChoices()
   })
 })
 
-// Play button - go to how-to
+titleScreen.querySelectorAll('[data-difficulty]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    selectedDifficulty = (btn as HTMLElement).dataset.difficulty as Difficulty
+    syncTitleChoices()
+  })
+})
+
 document.getElementById('play-button')?.addEventListener('click', () => {
-  titleScreen.classList.remove('active')
-  howToScreen.classList.add('active')
   startBackgroundMusic()
+  if (isTouchDevice(selectedDevice)) {
+    showScreen(characterScreen)
+  } else {
+    fillHowTo()
+    showScreen(howToScreen)
+  }
 })
 
-// Start button - start game
-document.getElementById('start-button')?.addEventListener('click', () => {
-  howToScreen.classList.remove('active')
-  startBackgroundMusic()
-  startGame()
+characterScreen.querySelectorAll('[data-character]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    selectedCharacter = (btn as HTMLElement).dataset.character as CharacterId
+    fillHowTo()
+    showScreen(howToScreen)
+  })
 })
 
-// Play again button
 document.getElementById('play-again-button')?.addEventListener('click', () => {
-  winScreen.classList.remove('active')
+  showScreen(null)
   startGame()
+})
+
+document.getElementById('home-button')?.addEventListener('click', () => {
+  if (game) {
+    game.destroy()
+    game = null
+  }
+  gamePlaying = false
+  showTouchControls(false)
+  document.body.classList.remove('playing')
+  showScreen(titleScreen)
 })
 
 function startGame() {
-  if (game) {
-    game.destroy()
-  }
-  game = new Game(canvas, selectedDifficulty, isMuted, (harbinStars: number, agamStars: number) => {
-    // Win callback
-    showWinScreen(harbinStars, agamStars)
-  })
+  if (game) game.destroy()
+  const mode = playModeFor(selectedDevice)
+  gamePlaying = true
+  document.body.classList.add('playing')
+  showTouchControls(mode === '1p')
+
+  game = new Game(
+    canvas,
+    selectedDifficulty,
+    isMuted,
+    (harbinStars, agamStars) => {
+      gamePlaying = false
+      showTouchControls(false)
+      document.body.classList.remove('playing')
+      showWinScreen(harbinStars, agamStars)
+    },
+    mode,
+    selectedCharacter
+  )
   game.start()
 }
 
 function showWinScreen(harbinStars: number, agamStars: number) {
   const statsDiv = document.getElementById('win-stats')!
-  statsDiv.innerHTML = `
-    <div style="color: #00CED1;">Harbin collected ${harbinStars} stars!</div>
-    <div style="color: #FFA500;">Agam collected ${agamStars} stars!</div>
-    <div style="margin-top: 20px;">Total: ${harbinStars + agamStars} stars! ⭐</div>
-  `
-  winScreen.classList.add('active')
+  if (playModeFor(selectedDevice) === '1p') {
+    const name = selectedCharacter === 'harbin' ? 'Harbin' : 'Agam'
+    const color = selectedCharacter === 'harbin' ? '#00CED1' : '#FFA500'
+    const stars = selectedCharacter === 'harbin' ? harbinStars : agamStars
+    statsDiv.innerHTML = `
+      <div style="color: ${color};">Well done ${name}!</div>
+      <div style="color: ${color};">${name} collected ${stars} stars!</div>
+    `
+  } else {
+    statsDiv.innerHTML = `
+      <div style="color: #00CED1;">Harbin collected ${harbinStars} stars!</div>
+      <div style="color: #FFA500;">Agam collected ${agamStars} stars!</div>
+      <div style="margin-top: 20px;">Total: ${harbinStars + agamStars} stars! ⭐</div>
+    `
+  }
+  showScreen(winScreen)
 }
+
+// Block browser scroll / pinch-zoom during play (and on game keys/buttons)
+document.addEventListener('touchmove', (e) => {
+  if (gamePlaying) e.preventDefault()
+}, { passive: false })
+
+document.addEventListener('gesturestart', (e) => e.preventDefault())
+document.addEventListener('gesturechange', (e) => e.preventDefault())
+document.addEventListener('gestureend', (e) => e.preventDefault())
+
+syncTitleChoices()
