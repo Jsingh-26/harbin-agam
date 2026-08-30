@@ -120,12 +120,59 @@ export class Game {
     const vw = window.visualViewport?.width ?? document.documentElement.clientWidth ?? window.innerWidth
     const vh = window.visualViewport?.height ?? document.documentElement.clientHeight ?? window.innerHeight
 
-    const scale = Math.min(vw / this.width, vh / this.height)
+    if (this.mode === '1p') {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      this.canvas.style.width = `${Math.floor(vw)}px`
+      this.canvas.style.height = `${Math.floor(vh)}px`
+      this.canvas.width = Math.max(1, Math.floor(vw * dpr))
+      this.canvas.height = Math.max(1, Math.floor(vh * dpr))
+      return
+    }
 
+    const scale = Math.min(vw / this.width, vh / this.height)
     this.canvas.width = this.width
     this.canvas.height = this.height
     this.canvas.style.width = `${Math.floor(this.width * scale)}px`
     this.canvas.style.height = `${Math.floor(this.height * scale)}px`
+  }
+
+  private applyCamera() {
+    const screenW = this.canvas.width
+    const screenH = this.canvas.height
+    const ctx = this.ctx
+
+    if (this.mode !== '1p') {
+      const scale = Math.min(screenW / this.width, screenH / this.height)
+      const ox = (screenW - this.width * scale) / 2
+      const oy = (screenH - this.height * scale) / 2
+      ctx.setTransform(scale, 0, 0, scale, ox, oy)
+      return { screenW, screenH }
+    }
+
+    const player = this.players[0]
+    const aspect = screenW / Math.max(1, screenH)
+    const cssW = parseFloat(this.canvas.style.width) || screenW
+    let viewH = 400
+    if (cssW >= 700) viewH = 520
+    if (cssW >= 1000) viewH = 580
+    if (aspect > 1.2) viewH = Math.min(560, viewH + 40)
+    let viewW = viewH * aspect
+    if (viewW < 360) {
+      viewW = 360
+      viewH = viewW / aspect
+    }
+
+    let camX = 0
+    let camY = 0
+    if (player) {
+      camX = player.x + player.width / 2 - viewW / 2
+      camY = player.y + player.height / 2 - viewH / 2
+    }
+    camX = Math.max(0, Math.min(Math.max(0, this.width - viewW), camX))
+    camY = Math.max(0, Math.min(Math.max(0, this.height - viewH), camY))
+    const scale = screenW / viewW
+    ctx.setTransform(scale, 0, 0, scale, -camX * scale, -camY * scale)
+    return { screenW, screenH }
   }
 
   private createLevel() {
@@ -333,61 +380,70 @@ export class Game {
   }
 
   private render() {
-    this.ctx.save()
+    const ctx = this.ctx
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+
+    this.applyCamera()
 
     if (this.cameraShake > 0) {
       const shakeX = (Math.random() - 0.5) * this.cameraShake
       const shakeY = (Math.random() - 0.5) * this.cameraShake
-      this.ctx.translate(shakeX, shakeY)
+      ctx.translate(shakeX, shakeY)
     }
 
-    const gradient = this.ctx.createLinearGradient(0, 0, 0, this.height)
+    const gradient = ctx.createLinearGradient(0, 0, 0, this.height)
     gradient.addColorStop(0, '#87CEEB')
     gradient.addColorStop(1, '#B0E0E6')
-    this.ctx.fillStyle = gradient
-    this.ctx.fillRect(0, 0, this.width, this.height)
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, this.width, this.height)
 
-    this.platforms.forEach(p => p.render(this.ctx))
-    this.exit.render(this.ctx)
-    this.stars.forEach(s => s.render(this.ctx))
-    this.enemies.forEach(e => e.render(this.ctx))
-    this.spikes.forEach(s => s.render(this.ctx))
+    this.platforms.forEach(p => p.render(ctx))
+    this.exit.render(ctx)
+    this.stars.forEach(s => s.render(ctx))
+    this.enemies.forEach(e => e.render(ctx))
+    this.spikes.forEach(s => s.render(ctx))
 
     for (const player of this.players) {
-      player.render(this.ctx)
+      player.render(ctx)
     }
 
-    this.particles.forEach(p => p.render(this.ctx))
-
-    this.renderHUD()
+    this.particles.forEach(p => p.render(ctx))
 
     if (this.flashAlpha > 0) {
-      this.ctx.fillStyle = `rgba(255, 255, 255, ${this.flashAlpha})`
-      this.ctx.fillRect(0, 0, this.width, this.height)
+      ctx.fillStyle = `rgba(255, 255, 255, ${this.flashAlpha})`
+      ctx.fillRect(0, 0, this.width, this.height)
     }
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+    this.renderHUD()
 
     if (this.celebrationOverlay) {
-      this.ctx.fillStyle = `rgba(255, 255, 255, ${this.celebrationOverlay.alpha * 0.8})`
-      this.ctx.fillRect(0, 0, this.width, this.height)
-
-      this.ctx.font = 'bold 72px Arial'
-      this.ctx.textAlign = 'center'
-      this.ctx.textBaseline = 'middle'
+      const w = this.canvas.width
+      const h = this.canvas.height
+      ctx.fillStyle = `rgba(255, 255, 255, ${this.celebrationOverlay.alpha * 0.8})`
+      ctx.fillRect(0, 0, w, h)
+      ctx.font = `bold ${Math.round(h * 0.08)}px Arial`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
       const text = `Well done ${this.celebrationOverlay.name}!`
-      this.ctx.fillStyle = `rgba(0, 0, 0, ${this.celebrationOverlay.alpha})`
-      this.ctx.fillText(text, this.width / 2, this.height / 2)
-      this.ctx.fillStyle = `rgba(255, 215, 0, ${this.celebrationOverlay.alpha})`
-      this.ctx.fillText(text, this.width / 2 - 2, this.height / 2 - 2)
+      ctx.fillStyle = `rgba(0, 0, 0, ${this.celebrationOverlay.alpha})`
+      ctx.fillText(text, w / 2, h / 2)
+      ctx.fillStyle = `rgba(255, 215, 0, ${this.celebrationOverlay.alpha})`
+      ctx.fillText(text, w / 2 - 2, h / 2 - 2)
     }
+  }
 
-    this.ctx.restore()
+  private screenSize() {
+    return { w: this.canvas.width, h: this.canvas.height }
   }
 
   private renderPlayerHud(player: Player, side: 'left' | 'right') {
-    const padding = 20
-    const boxW = 200
-    const boxH = 80
-    const x = side === 'left' ? padding : this.width - padding - boxW
+    const { w } = this.screenSize()
+    const padding = Math.max(12, Math.round(w * 0.02))
+    const boxW = Math.min(240, Math.round(w * 0.28))
+    const boxH = Math.max(56, Math.round(w * 0.07))
+    const x = side === 'left' ? padding : w - padding - boxW
 
     this.ctx.fillStyle = player.name === 'Harbin' ? 'rgba(0, 206, 209, 0.8)' : 'rgba(255, 165, 0, 0.8)'
     this.ctx.fillRect(x, padding, boxW, boxH)
@@ -415,13 +471,16 @@ export class Game {
     if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
     if (this.agam) this.renderPlayerHud(this.agam, 'right')
 
-    const bannerY = this.height - 90
+    const { w, h } = this.screenSize()
+    const bannerH = Math.max(44, Math.round(h * 0.08))
+    const bannerW = Math.min(w - 24, Math.round(w * 0.8))
+    const bannerY = h - bannerH - (this.mode === '1p' ? Math.round(h * 0.18) : 16)
     this.ctx.fillStyle = 'rgba(0, 160, 0, 0.75)'
-    this.ctx.fillRect(this.width / 2 - 280, bannerY, 560, 60)
+    this.ctx.fillRect((w - bannerW) / 2, bannerY, bannerW, bannerH)
     this.ctx.fillStyle = 'white'
-    this.ctx.font = 'bold 22px Arial'
+    this.ctx.font = `bold ${Math.max(16, Math.round(h * 0.035))}px Arial`
     this.ctx.textAlign = 'center'
-    this.ctx.fillText('Go to the rainbow to win!', this.width / 2, bannerY + 38)
+    this.ctx.fillText('Go to the rainbow to win!', w / 2, bannerY + bannerH * 0.62)
   }
 
   private createStarBurst(x: number, y: number, color: string) {

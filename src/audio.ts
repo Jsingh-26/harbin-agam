@@ -82,29 +82,57 @@ export class AudioManager {
   public speakWellDone(name: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
+    loadVoices()
 
-    const spoken =
-      name === "Harbin" ? "Hurr-bin" :
-      name === "Agam" ? "Uh-gum" :
-      name
+    const gurmukhi = name === "Harbin" ? "ਹਰਬਿਨ" : name === "Agam" ? "ਅਗਮ" : name
+    // Forced syllables for English voices: HUR-bin / UH-gum
+    const phonetic = name === "Harbin" ? "HUR bin" : name === "Agam" ? "UH gum" : name
+
+    const voices = window.speechSynthesis.getVoices()
+    const punjabi =
+      voices.find((v) => /^(pa|pa-in|pa-guru)/i.test(v.lang)) ||
+      voices.find((v) => /punjabi|gurmukhi|panjabi/i.test(v.name))
+    const hindi =
+      voices.find((v) => v.lang.toLowerCase().startsWith("hi")) ||
+      voices.find((v) => /hindi|neel|ravi/i.test(v.name))
+    const indianEn =
+      voices.find((v) => v.lang.toLowerCase().startsWith("en-in")) ||
+      voices.find((v) => /india/i.test(v.name))
+    const english = voices.find((v) => v.lang.toLowerCase().startsWith("en"))
 
     window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(`Well done ${spoken}!`)
-    utterance.rate = 0.95
-    utterance.pitch = 1.05
-    utterance.volume = 1
-    utterance.lang = "en-IN"
 
-    loadVoices()
-    const voices = window.speechSynthesis.getVoices()
-    const voice =
-      voices.find((v) => v.lang.toLowerCase().startsWith("en-in")) ||
-      voices.find((v) => /india|hindi|punjabi|neel|ravi|heera/i.test(v.name)) ||
-      voices.find((v) => v.lang.toLowerCase().startsWith("hi")) ||
-      voices.find((v) => v.lang.startsWith("en"))
-    if (voice) utterance.voice = voice
+    const praise = new SpeechSynthesisUtterance("Well done")
+    praise.rate = 0.9
+    praise.pitch = 1.0
+    praise.volume = 1
+    praise.lang = indianEn?.lang || "en-IN"
+    if (indianEn) praise.voice = indianEn
+    else if (english) praise.voice = english
 
-    window.speechSynthesis.speak(utterance)
+    const nameU = new SpeechSynthesisUtterance()
+    nameU.rate = 0.8
+    nameU.pitch = 1.0
+    nameU.volume = 1
+    if (punjabi) {
+      nameU.text = gurmukhi
+      nameU.lang = punjabi.lang || "pa-IN"
+      nameU.voice = punjabi
+    } else if (hindi) {
+      nameU.text = gurmukhi
+      nameU.lang = hindi.lang || "hi-IN"
+      nameU.voice = hindi
+    } else {
+      nameU.text = phonetic
+      nameU.lang = "en-IN"
+      if (indianEn) nameU.voice = indianEn
+      else if (english) nameU.voice = english
+    }
+
+    praise.onend = () => {
+      try { window.speechSynthesis.speak(nameU) } catch { /* ignore */ }
+    }
+    window.speechSynthesis.speak(praise)
   }
 
   public speak(text: string) {

@@ -459,3 +459,60 @@ canvas {
     font-size: 14px;
   }
 }
+
+
+body.playing-touch #app {
+  position: fixed;
+  inset: 0;
+  padding-bottom: calc(140px + env(safe-area-inset-bottom));
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+body.playing-touch canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover;
+}
+
+body.playing-touch .touch-btn {
+  width: 22vw;
+  height: 22vw;
+  max-width: 120px;
+  max-height: 120px;
+  min-width: 72px;
+  min-height: 72px;
+  font-size: 7vw;
+}
+
+body.playing-touch .touch-jump {
+  width: 28vw;
+  height: 18vw;
+  max-width: 160px;
+  max-height: 96px;
+  min-width: 96px;
+  min-height: 64px;
+  font-size: 5vw;
+  border-radius: 22px;
+}
+
+@media (min-width: 768px) {
+  body.playing-touch {
+    /* iPad: room for thumbs, still a follow-cam */
+  }
+  body.playing-touch #app {
+    padding-bottom: calc(160px + env(safe-area-inset-bottom));
+  }
+  body.playing-touch .touch-btn {
+    width: 110px;
+    height: 110px;
+    font-size: 36px;
+  }
+  body.playing-touch .touch-jump {
+    width: 150px;
+    height: 90px;
+    font-size: 22px;
+  }
+}

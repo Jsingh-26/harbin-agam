@@ -125,7 +125,6 @@ touchControls.innerHTML = `
     <button class="touch-btn" type="button" data-touch="right" aria-label="Right">▶</button>
   </div>
   <div class="touch-cluster touch-right">
-    <button class="touch-btn touch-action" type="button" data-touch="action">ACTION</button>
     <button class="touch-btn touch-jump" type="button" data-touch="jump">JUMP</button>
   </div>
 `
@@ -341,7 +340,7 @@ document.getElementById('home-button')?.addEventListener('click', () => {
   }
   gamePlaying = false
   showTouchControls(false)
-  document.body.classList.remove('playing')
+  document.body.classList.remove('playing', 'playing-touch')
   showScreen(titleScreen)
 })
 
@@ -350,6 +349,7 @@ function startGame() {
   const mode = playModeFor(selectedDevice)
   gamePlaying = true
   document.body.classList.add('playing')
+  document.body.classList.toggle('playing-touch', mode === '1p')
   showTouchControls(mode === '1p')
 
   game = new Game(
@@ -359,7 +359,7 @@ function startGame() {
     (harbinStars, agamStars) => {
       gamePlaying = false
       showTouchControls(false)
-      document.body.classList.remove('playing')
+      document.body.classList.remove('playing', 'playing-touch')
       showWinScreen(harbinStars, agamStars)
     },
     mode,
