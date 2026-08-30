@@ -1,6 +1,7 @@
 import './style.css'
 import { Game } from './game'
 import type { CharacterId, Difficulty, PlayMode } from './game'
+import { unlockAudio } from './audio'
 
 type DeviceChoice = 'laptop' | 'phone' | 'ipad'
 
@@ -186,51 +187,19 @@ function showTouchControls(show: boolean) {
 }
 
 // ---------- audio ----------
-let audioContext: AudioContext | null = null
-let backgroundGainNode: GainNode | null = null
-let musicTimer: number | null = null
-
-function startBackgroundMusic() {
-  if (audioContext) return
-  audioContext = new AudioContext()
-  backgroundGainNode = audioContext.createGain()
-  backgroundGainNode.connect(audioContext.destination)
-  backgroundGainNode.gain.value = isMuted ? 0 : 0.02
-
-  const notes = [262, 294, 330, 392, 330, 294]
-  let noteIndex = 0
-
-  function playNote() {
-    if (!audioContext || !backgroundGainNode) return
-    const osc = audioContext.createOscillator()
-    const gain = audioContext.createGain()
-    osc.connect(gain)
-    gain.connect(backgroundGainNode)
-    osc.frequency.value = notes[noteIndex]
-    osc.type = 'sine'
-    gain.gain.setValueAtTime(0.02, audioContext.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.4)
-    osc.start()
-    osc.stop(audioContext.currentTime + 0.4)
-    noteIndex = (noteIndex + 1) % notes.length
-  }
-
-  musicTimer = window.setInterval(playNote, 400)
-}
-
 function updateMuteButton() {
   muteButton.innerHTML = isMuted ? '🔇' : '🔊'
   muteButton.setAttribute('aria-label', isMuted ? 'Unmute' : 'Mute')
-  if (backgroundGainNode) {
-    backgroundGainNode.gain.value = isMuted ? 0 : 0.02
-  }
 }
 
 muteButton.addEventListener('click', () => {
+  void unlockAudio()
   isMuted = !isMuted
   updateMuteButton()
   if (game) game.setMuted(isMuted)
 })
+
+document.addEventListener('pointerdown', () => { void unlockAudio() }, { once: true })
 
 // ---------- UI helpers ----------
 function showScreen(el: HTMLElement | null) {
@@ -321,7 +290,7 @@ function fillHowTo() {
 
   document.getElementById('start-button')?.addEventListener('click', () => {
     showScreen(null)
-    startBackgroundMusic()
+    void unlockAudio()
     startGame()
   })
 }
@@ -347,7 +316,7 @@ titleScreen.querySelectorAll('[data-difficulty]').forEach((btn) => {
 })
 
 document.getElementById('play-button')?.addEventListener('click', () => {
-  startBackgroundMusic()
+  void unlockAudio()
   if (isTouchDevice(selectedDevice)) {
     showScreen(characterScreen)
   } else {

@@ -173,6 +173,7 @@ export class Game {
 
   public start() {
     this.running = true
+    this.audioManager.startBackgroundMusic()
     this.gameLoop()
   }
 
