@@ -250,8 +250,7 @@ function fillHowTo() {
         <ul class="instruction-list">
           <li><span class="emoji">🏃</span> Move and jump with the big buttons</li>
           <li><span class="emoji">⭐</span> Grab the sparkling stars</li>
-          <li><span class="emoji">🔘</span> Stand near the glowing switch, then press ACTION to OPEN THE DOOR</li>
-          <li><span class="emoji">🌈</span> Walk through the rainbow EXIT to win!</li>
+          <li><span class="emoji">🌈</span> Reach the rainbow to win!</li>
         </ul>
       </div>
       <button class="button" type="button" id="start-button">START GAME!</button>
@@ -266,22 +265,19 @@ function fillHowTo() {
           <div class="control-item"><span class="key">W</span><span>Jump</span></div>
           <div class="control-item"><span class="key">A</span><span>Left</span></div>
           <div class="control-item"><span class="key">D</span><span>Right</span></div>
-          <div class="control-item"><span class="key">S</span><span>ACTION</span></div>
         </div>
         <div class="player-controls" style="background: rgba(255, 165, 0, 0.3);">
           <h3 style="color: #FFA500;">Agam</h3>
           <div class="control-item"><span class="key">↑</span><span>Jump</span></div>
           <div class="control-item"><span class="key">←</span><span>Left</span></div>
           <div class="control-item"><span class="key">→</span><span>Right</span></div>
-          <div class="control-item"><span class="key">↓</span><span>ACTION</span></div>
         </div>
       </div>
       <div class="instructions">
         <ul class="instruction-list">
-          <li><span class="emoji">🏃</span> Move and jump around the level</li>
-          <li><span class="emoji">⭐</span> Grab all the sparkling stars</li>
-          <li><span class="emoji">🔘</span> Stand near the glowing switch and press ACTION to OPEN THE DOOR</li>
-          <li><span class="emoji">🌈</span> Reach the rainbow EXIT to win!</li>
+          <li><span class="emoji">🏃</span> Move and jump</li>
+          <li><span class="emoji">⭐</span> Grab the sparkling stars</li>
+          <li><span class="emoji">🌈</span> Reach the rainbow to win!</li>
         </ul>
       </div>
       <button class="button" type="button" id="start-button">START GAME!</button>

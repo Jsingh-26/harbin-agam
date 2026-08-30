@@ -94,6 +94,7 @@ export class Game {
 
     this.switch = new Switch(640, 600)
     this.door = new Door(1100, 400)
+    this.door.open()
     this.exit = new Exit(1150, 400)
   }
 
@@ -199,7 +200,54 @@ export class Game {
     requestAnimationFrame(this.gameLoop)
   }
 
+  private separatePlayers() {
+    if (!this.harbin || !this.agam) return
+    const a = this.harbin
+    const b = this.agam
+    if (!a.checkCollision(b.x, b.y, b.width, b.height)) return
+
+    const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)
+    const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)
+    if (overlapX <= 0 || overlapY <= 0) return
+
+    if (overlapX < overlapY) {
+      const push = overlapX / 2 + 0.5
+      if (a.x + a.width / 2 < b.x + b.width / 2) {
+        a.x -= push
+        b.x += push
+      } else {
+        a.x += push
+        b.x -= push
+      }
+      a.vx = 0
+      b.vx = 0
+    } else {
+      const push = overlapY / 2 + 0.5
+      if (a.y + a.height / 2 < b.y + b.height / 2) {
+        a.y -= push
+        b.y += push
+        if (a.vy > 0) {
+          a.vy = 0
+          a.isGrounded = true
+        }
+      } else {
+        a.y += push
+        b.y -= push
+        if (b.vy > 0) {
+          b.vy = 0
+          b.isGrounded = true
+        }
+      }
+    }
+
+    for (const p of [a, b]) {
+      if (p.x < 0) p.x = 0
+      if (p.x + p.width > this.width) p.x = this.width - p.width
+    }
+  }
+
   private handlePlayerHazards(player: Player) {
+
     this.enemies.forEach(enemy => {
       if (player.checkCollision(enemy.x, enemy.y, enemy.width, enemy.height)) {
         if (player.vy > 0 && player.y + player.height < enemy.y + enemy.height / 2) {
@@ -227,6 +275,7 @@ export class Game {
     for (const player of this.players) {
       player.update(this.keys, this.platforms)
     }
+    this.separatePlayers()
 
     this.platforms.forEach(p => p.update())
     this.enemies.forEach(e => e.update(this.platforms))
@@ -241,7 +290,7 @@ export class Game {
         if (player.checkCollision(star.x, star.y, star.size, star.size)) {
           player.collectStar()
           this.audioManager.playCollect()
-          this.audioManager.speak(`Well done ${player.name}!`)
+          this.audioManager.speakWellDone(player.name)
           this.createStarBurst(star.x, star.y, player.color)
           this.showCelebration(player.name)
           return false
@@ -254,52 +303,16 @@ export class Game {
       this.handlePlayerHazards(player)
     }
 
-    // Switch: stand nearby and press ACTION to open the door
-    const nearPlayers: Player[] = []
-    for (const player of this.players) {
-      const near = player.checkCollision(
-        this.switch.x - 20,
-        this.switch.y - 20,
-        this.switch.width + 40,
-        this.switch.height + 40
-      )
-      if (near) nearPlayers.push(player)
-    }
-
-    if (nearPlayers.length > 0 && !this.door.isOpen) {
-      const p = nearPlayers[0]
-      const hint = this.mode === '1p'
-        ? `${p.name}: tap ACTION to OPEN THE DOOR`
-        : p.name === 'Harbin'
-          ? 'Harbin: press S to OPEN THE DOOR'
-          : 'Agam: press ↓ to OPEN THE DOOR'
-      this.switch.setPrompt(hint)
-    } else {
-      this.switch.setPrompt(null)
-    }
-
-    for (const player of nearPlayers) {
-      if (this.keys.has(player.actionKey) && !this.door.isOpen) {
-        this.door.open()
-        this.audioManager.playSwitch()
-        this.flashAlpha = 0.5
-        this.switch.setPrompt(null)
-      }
-    }
-
-    // Win: door open + reach rainbow EXIT (any active player)
-    if (this.door.isOpen) {
-      const someoneAtExit = this.players.some(player =>
-        player.checkCollision(this.exit.x, this.exit.y, this.exit.width, this.exit.height)
-      )
-
-      if (someoneAtExit) {
-        this.audioManager.playWin()
-        this.running = false
-        setTimeout(() => {
-          this.winCallback(this.harbin?.starsCollected ?? 0, this.agam?.starsCollected ?? 0)
-        }, 1000)
-      }
+    // Win: reach the rainbow. No switch.
+    const someoneAtExit = this.players.some(player =>
+      player.checkCollision(this.exit.x, this.exit.y, this.exit.width, this.exit.height)
+    )
+    if (someoneAtExit) {
+      this.audioManager.playWin()
+      this.running = false
+      setTimeout(() => {
+        this.winCallback(this.harbin?.starsCollected ?? 0, this.agam?.starsCollected ?? 0)
+      }, 1000)
     }
 
     if (this.cameraShake > 0) {
@@ -335,9 +348,7 @@ export class Game {
     this.ctx.fillRect(0, 0, this.width, this.height)
 
     this.platforms.forEach(p => p.render(this.ctx))
-    this.door.render(this.ctx)
     this.exit.render(this.ctx)
-    this.switch.render(this.ctx)
     this.stars.forEach(s => s.render(this.ctx))
     this.enemies.forEach(e => e.render(this.ctx))
     this.spikes.forEach(s => s.render(this.ctx))
@@ -404,23 +415,13 @@ export class Game {
     if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
     if (this.agam) this.renderPlayerHud(this.agam, 'right')
 
-    // Goal message — keep it above the bottom so touch thumbs don't hide it
     const bannerY = this.height - 90
-    if (!this.door.isOpen) {
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)'
-      this.ctx.fillRect(this.width / 2 - 280, bannerY, 560, 60)
-      this.ctx.fillStyle = '#FFD700'
-      this.ctx.font = 'bold 20px Arial'
-      this.ctx.textAlign = 'center'
-      this.ctx.fillText('Stand on the switch, press ACTION, then rainbow EXIT!', this.width / 2, bannerY + 38)
-    } else {
-      this.ctx.fillStyle = 'rgba(0, 200, 0, 0.7)'
-      this.ctx.fillRect(this.width / 2 - 280, bannerY, 560, 60)
-      this.ctx.fillStyle = 'white'
-      this.ctx.font = 'bold 22px Arial'
-      this.ctx.textAlign = 'center'
-      this.ctx.fillText('DOOR OPEN — go to the rainbow EXIT!', this.width / 2, bannerY + 38)
-    }
+    this.ctx.fillStyle = 'rgba(0, 160, 0, 0.75)'
+    this.ctx.fillRect(this.width / 2 - 280, bannerY, 560, 60)
+    this.ctx.fillStyle = 'white'
+    this.ctx.font = 'bold 22px Arial'
+    this.ctx.textAlign = 'center'
+    this.ctx.fillText('Go to the rainbow to win!', this.width / 2, bannerY + 38)
   }
 
   private createStarBurst(x: number, y: number, color: string) {

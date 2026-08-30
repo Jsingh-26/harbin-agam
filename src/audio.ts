@@ -79,24 +79,50 @@ export class AudioManager {
     return ctx
   }
 
-  public speak(text: string) {
+  public speakWellDone(name: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
 
+    const spoken =
+      name === "Harbin" ? "Hurr-bin" :
+      name === "Agam" ? "Uh-gum" :
+      name
+
     window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.rate = 1.05
-    utterance.pitch = 1.15
+    const utterance = new SpeechSynthesisUtterance(`Well done ${spoken}!`)
+    utterance.rate = 0.95
+    utterance.pitch = 1.05
     utterance.volume = 1
-    utterance.lang = 'en-US'
+    utterance.lang = "en-IN"
 
     loadVoices()
     const voices = window.speechSynthesis.getVoices()
-    const friendly =
-      voices.find((v) => v.lang.startsWith('en') && /female|samantha|google us|karen|moira/i.test(v.name)) ||
-      voices.find((v) => v.lang.startsWith('en'))
-    if (friendly) utterance.voice = friendly
+    const voice =
+      voices.find((v) => v.lang.toLowerCase().startsWith("en-in")) ||
+      voices.find((v) => /india|hindi|punjabi|neel|ravi|heera/i.test(v.name)) ||
+      voices.find((v) => v.lang.toLowerCase().startsWith("hi")) ||
+      voices.find((v) => v.lang.startsWith("en"))
+    if (voice) utterance.voice = voice
 
+    window.speechSynthesis.speak(utterance)
+  }
+
+  public speak(text: string) {
+    if (this.muted || !window.speechSynthesis) return
+    void this.ensureRunning()
+    window.speechSynthesis.cancel()
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.rate = 0.95
+    utterance.pitch = 1.05
+    utterance.volume = 1
+    utterance.lang = "en-IN"
+    loadVoices()
+    const voices = window.speechSynthesis.getVoices()
+    const voice =
+      voices.find((v) => v.lang.toLowerCase().startsWith("en-in")) ||
+      voices.find((v) => /india|hindi|punjabi/i.test(v.name)) ||
+      voices.find((v) => v.lang.startsWith("en"))
+    if (voice) utterance.voice = voice
     window.speechSynthesis.speak(utterance)
   }
 
