@@ -45,9 +45,12 @@ Easy / Medium / Hard (more stars, enemies, and spikes on harder settings).
 ## Features
 
 - Juice: squash/stretch, particles, camera shake
-- Glowing switch prompt, brown door, rainbow EXIT
-- Enemies (stomp from above) and spikes
-- Web Speech API praise plus fullscreen overlay on stars
+- Glowing switch prompt: press ACTION next to it to open the brown door, then walk through the rainbow EXIT
+- Enemies defeated by stomping from above; spikes cost a heart
+- Out of hearts? Respawn at the start with full hearts (stars kept) and a spoken "Try again"
+- Web Speech API praise ("Well done" plus the child's name with Punjabi pronunciation) plus fullscreen overlay on stars
+- Fixed-timestep updates: same game speed on 60 Hz and 120 Hz+ screens
+- High-DPI sharp rendering in 2-player mode
 - Mute button
 
 ## Running locally

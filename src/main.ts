@@ -125,6 +125,7 @@ touchControls.innerHTML = `
     <button class="touch-btn" type="button" data-touch="right" aria-label="Right">▶</button>
   </div>
   <div class="touch-cluster touch-right">
+    <button class="touch-btn touch-action" type="button" data-touch="action">ACTION</button>
     <button class="touch-btn touch-jump" type="button" data-touch="jump">JUMP</button>
   </div>
 `
@@ -249,7 +250,9 @@ function fillHowTo() {
         <ul class="instruction-list">
           <li><span class="emoji">🏃</span> Move and jump with the big buttons</li>
           <li><span class="emoji">⭐</span> Grab the sparkling stars</li>
-          <li><span class="emoji">🌈</span> Reach the rainbow to win!</li>
+          <li><span class="emoji">🧡</span> Stomp baddies from above. Out of hearts? You restart with full hearts!</li>
+          <li><span class="emoji">🔘</span> Press ACTION at the glowing switch to open the door</li>
+          <li><span class="emoji">🌈</span> Walk through the rainbow to win!</li>
         </ul>
       </div>
       <button class="button" type="button" id="start-button">START GAME!</button>
@@ -264,19 +267,23 @@ function fillHowTo() {
           <div class="control-item"><span class="key">W</span><span>Jump</span></div>
           <div class="control-item"><span class="key">A</span><span>Left</span></div>
           <div class="control-item"><span class="key">D</span><span>Right</span></div>
+          <div class="control-item"><span class="key">S</span><span>ACTION - open door</span></div>
         </div>
         <div class="player-controls" style="background: rgba(255, 165, 0, 0.3);">
           <h3 style="color: #FFA500;">Agam</h3>
           <div class="control-item"><span class="key">↑</span><span>Jump</span></div>
           <div class="control-item"><span class="key">←</span><span>Left</span></div>
           <div class="control-item"><span class="key">→</span><span>Right</span></div>
+          <div class="control-item"><span class="key">↓</span><span>ACTION - open door</span></div>
         </div>
       </div>
       <div class="instructions">
         <ul class="instruction-list">
           <li><span class="emoji">🏃</span> Move and jump</li>
           <li><span class="emoji">⭐</span> Grab the sparkling stars</li>
-          <li><span class="emoji">🌈</span> Reach the rainbow to win!</li>
+          <li><span class="emoji">🧡</span> Stomp baddies from above. Out of hearts? You restart with full hearts!</li>
+          <li><span class="emoji">🔘</span> Press ACTION at the glowing switch to open the door</li>
+          <li><span class="emoji">🌈</span> Walk through the rainbow to win!</li>
         </ul>
       </div>
       <button class="button" type="button" id="start-button">START GAME!</button>
@@ -365,6 +372,8 @@ function startGame() {
     mode,
     selectedCharacter
   )
+  // Test hook: lets automated checks read game state
+  ;(window as unknown as { __haGame?: Game }).__haGame = game
   game.start()
 }
 

@@ -29,7 +29,12 @@ export class Game {
   private exit: Exit
   private particles: Particle[] = []
   private keys: Set<string> = new Set()
+  private justPressed: Set<string> = new Set()
   private running = false
+  private lastFrameTime = 0
+  private accumulator = 0
+  private static readonly STEP_MS = 1000 / 60
+  private static readonly MAX_STEPS = 5
   private difficulty: Difficulty
   private audioManager: AudioManager
   private winCallback: (harbinStars: number, agamStars: number) => void
@@ -78,6 +83,7 @@ export class Game {
     this.onKeyDown = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase()
       this.keys.add(key)
+      if (!e.repeat) this.justPressed.add(key)
       if (
         key === 'arrowup' || key === 'arrowdown' || key === 'arrowleft' || key === 'arrowright' ||
         key === 'w' || key === 'a' || key === 's' || key === 'd' ||
@@ -92,14 +98,15 @@ export class Game {
     window.addEventListener('keydown', this.onKeyDown, { passive: false })
     window.addEventListener('keyup', this.onKeyUp)
 
-    this.switch = new Switch(640, 600)
-    this.door = new Door(1100, 400)
-    this.door.open()
-    this.exit = new Exit(1150, 400)
+    this.switch = new Switch(640, 630)
+    this.door = new Door(1120, 500)
+    this.exit = new Exit(1150, 500)
   }
 
   public pressKey(key: string) {
-    this.keys.add(key.toLowerCase())
+    const k = key.toLowerCase()
+    if (!this.keys.has(k)) this.justPressed.add(k)
+    this.keys.add(k)
   }
 
   public releaseKey(key: string) {
@@ -130,10 +137,14 @@ export class Game {
     }
 
     const scale = Math.min(vw / this.width, vh / this.height)
-    this.canvas.width = this.width
-    this.canvas.height = this.height
-    this.canvas.style.width = `${Math.floor(this.width * scale)}px`
-    this.canvas.style.height = `${Math.floor(this.height * scale)}px`
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const cssW = Math.max(1, Math.floor(this.width * scale))
+    const cssH = Math.max(1, Math.floor(this.height * scale))
+    this.canvas.style.width = `${cssW}px`
+    this.canvas.style.height = `${cssH}px`
+    // Backing store at device pixels so 2-player is sharp on high-DPI screens
+    this.canvas.width = Math.max(1, Math.floor(cssW * dpr))
+    this.canvas.height = Math.max(1, Math.floor(cssH * dpr))
   }
 
   private applyCamera() {
@@ -208,7 +219,7 @@ export class Game {
     const enemyCount = this.difficulty === 'easy' ? 2 : this.difficulty === 'medium' ? 3 : 4
     const enemySpeed = this.difficulty === 'easy' ? 1 : this.difficulty === 'medium' ? 1.5 : 2
     for (let i = 0; i < enemyCount; i++) {
-      this.enemies.push(new Enemy(400 + i * 250, 400, enemySpeed))
+      this.enemies.push(new Enemy(400 + i * 180, 400, enemySpeed))
     }
 
     // Spikes
@@ -221,12 +232,15 @@ export class Game {
 
   public start() {
     this.running = true
+    this.lastFrameTime = 0
+    this.accumulator = 0
     this.audioManager.startBackgroundMusic()
-    this.gameLoop()
+    requestAnimationFrame(this.gameLoop)
   }
 
   public destroy() {
     this.running = false
+    this.audioManager.stopBackgroundMusic()
     window.removeEventListener('resize', this.onResize)
     window.visualViewport?.removeEventListener('resize', this.onViewportResize)
     window.removeEventListener('keydown', this.onKeyDown)
@@ -238,10 +252,23 @@ export class Game {
     this.audioManager.setMuted(muted)
   }
 
-  private gameLoop = () => {
+  private gameLoop = (time: number) => {
     if (!this.running) return
 
-    this.update()
+    if (this.lastFrameTime === 0) this.lastFrameTime = time
+    let elapsed = time - this.lastFrameTime
+    this.lastFrameTime = time
+    if (elapsed > 250) elapsed = 250 // tab was hidden; don't fast-forward
+    this.accumulator += elapsed
+
+    let steps = 0
+    while (this.accumulator >= Game.STEP_MS && steps < Game.MAX_STEPS) {
+      this.update()
+      this.accumulator -= Game.STEP_MS
+      steps++
+    }
+    if (steps === Game.MAX_STEPS) this.accumulator = 0
+
     this.render()
 
     requestAnimationFrame(this.gameLoop)
@@ -296,11 +323,13 @@ export class Game {
   private handlePlayerHazards(player: Player) {
 
     this.enemies.forEach(enemy => {
+      if (enemy.defeated) return
       if (player.checkCollision(enemy.x, enemy.y, enemy.width, enemy.height)) {
         if (player.vy > 0 && player.y + player.height < enemy.y + enemy.height / 2) {
           player.bounce()
           enemy.squash()
-          this.audioManager.playJump()
+          this.audioManager.playStomp()
+          this.createStarBurst(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2, '#8B0000')
         } else {
           player.takeDamage()
           this.audioManager.playHurt()
@@ -316,6 +345,70 @@ export class Game {
         this.cameraShake = 10
       }
     })
+
+    // Kid-friendly lose state: no game over, just a fresh try from the start
+    if (player.health <= 0) {
+      this.respawnPlayer(player)
+    }
+  }
+
+  private respawnPlayer(player: Player) {
+    const spawnX = player.name === 'Harbin' ? 100 : 200
+    player.resetForRespawn(spawnX, 500)
+    this.flashAlpha = 0.5
+    this.audioManager.speakEncouragement(player.name)
+  }
+
+  private openDoor() {
+    if (this.door.isOpen) return
+    this.door.open()
+    this.audioManager.playSwitch()
+    this.audioManager.speak('The door is open! Go to the rainbow!')
+    this.flashAlpha = 0.3
+    for (let i = 0; i < 16; i++) {
+      const angle = (Math.PI * 2 * i) / 16
+      const speed = 1.5 + Math.random() * 2.5
+      this.particles.push(new Particle(
+        this.door.x + this.door.width / 2,
+        this.door.y + this.door.height / 2,
+        Math.cos(angle) * speed,
+        Math.sin(angle) * speed,
+        '#FFD700'
+      ))
+    }
+  }
+
+  private updateSwitchAndDoor() {
+    if (this.door.isOpen) {
+      this.switch.setPrompt(null)
+      return
+    }
+
+    const switchCX = this.switch.x + this.switch.width / 2
+    const switchCY = this.switch.y + this.switch.height / 2
+    const near = this.players.filter(player =>
+      Math.abs(player.x + player.width / 2 - switchCX) < 80 &&
+      Math.abs(player.y + player.height / 2 - switchCY) < 80
+    )
+
+    if (near.length === 0) {
+      this.switch.setPrompt(null)
+      return
+    }
+
+    if (this.mode === '1p') {
+      this.switch.setPrompt('Press ACTION!')
+    } else {
+      const labels = near.map(player => (player.name === 'Harbin' ? 'S' : '\u2193'))
+      this.switch.setPrompt(`Press ${labels.join(' or ')}!`)
+    }
+
+    for (const player of near) {
+      if (this.justPressed.has(player.actionKey)) {
+        this.openDoor()
+        break
+      }
+    }
   }
 
   private update() {
@@ -326,6 +419,23 @@ export class Game {
 
     this.platforms.forEach(p => p.update())
     this.enemies.forEach(e => e.update(this.platforms))
+    this.enemies = this.enemies.filter(e => !e.isGone())
+
+    // A closed door is a wall
+    if (!this.door.isOpen) {
+      for (const player of this.players) {
+        if (player.checkCollision(this.door.x, this.door.y, this.door.width, this.door.height)) {
+          if (player.x + player.width / 2 < this.door.x + this.door.width / 2) {
+            player.x = this.door.x - player.width
+          } else {
+            player.x = this.door.x + this.door.width
+          }
+          player.vx = 0
+        }
+      }
+    }
+
+    this.updateSwitchAndDoor()
 
     this.particles = this.particles.filter(p => {
       p.update()
@@ -350,7 +460,7 @@ export class Game {
       this.handlePlayerHazards(player)
     }
 
-    // Win: reach the rainbow. No switch.
+    // Win: reach the rainbow (the door must be open to get there)
     const someoneAtExit = this.players.some(player =>
       player.checkCollision(this.exit.x, this.exit.y, this.exit.width, this.exit.height)
     )
@@ -377,6 +487,8 @@ export class Game {
         this.celebrationOverlay = null
       }
     }
+
+    this.justPressed.clear()
   }
 
   private render() {
@@ -399,6 +511,8 @@ export class Game {
     ctx.fillRect(0, 0, this.width, this.height)
 
     this.platforms.forEach(p => p.render(ctx))
+    this.switch.render(ctx)
+    this.door.render(ctx)
     this.exit.render(ctx)
     this.stars.forEach(s => s.render(ctx))
     this.enemies.forEach(e => e.render(ctx))
@@ -478,9 +592,18 @@ export class Game {
     this.ctx.fillStyle = 'rgba(0, 160, 0, 0.75)'
     this.ctx.fillRect((w - bannerW) / 2, bannerY, bannerW, bannerH)
     this.ctx.fillStyle = 'white'
-    this.ctx.font = `bold ${Math.max(16, Math.round(h * 0.035))}px Arial`
     this.ctx.textAlign = 'center'
-    this.ctx.fillText('Go to the rainbow to win!', w / 2, bannerY + bannerH * 0.62)
+    const bannerText = this.door.isOpen
+      ? 'Door open! Go to the rainbow to win!'
+      : 'Find the glowing switch to open the door!'
+    // Shrink the font until the message fits inside the banner
+    let bannerFont = Math.max(16, Math.round(h * 0.035))
+    this.ctx.font = `bold ${bannerFont}px Arial`
+    while (bannerFont > 12 && this.ctx.measureText(bannerText).width > bannerW - 32) {
+      bannerFont -= 2
+      this.ctx.font = `bold ${bannerFont}px Arial`
+    }
+    this.ctx.fillText(bannerText, w / 2, bannerY + bannerH * 0.62)
   }
 
   private createStarBurst(x: number, y: number, color: string) {

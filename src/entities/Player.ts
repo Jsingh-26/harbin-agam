@@ -149,14 +149,21 @@ export class Player {
 
   public takeDamage() {
     if (this.invincible || this.health <= 0) return
-    
+
     this.health--
     this.invincible = true
     this.invincibleTimer = 60
-    
-    if (this.health <= 0) {
-      // Game over logic handled by Game class
-    }
+  }
+
+  /** Kid-friendly reset: back to spawn with full hearts and a breather. */
+  public resetForRespawn(x: number, y: number) {
+    this.x = x
+    this.y = y
+    this.vx = 0
+    this.vy = 0
+    this.health = this.maxHealth
+    this.invincible = true
+    this.invincibleTimer = 120
   }
 
   public bounce() {
