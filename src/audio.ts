@@ -23,6 +23,41 @@ if (typeof window !== 'undefined' && window.speechSynthesis) {
   window.speechSynthesis.addEventListener('voiceschanged', loadVoices)
 }
 
+
+/**
+ * Speak and unwedge the queue if it stalls. Android WebView TTS can leave an
+ * utterance (often a volume-0 warm-up) stuck at the head of the speech queue,
+ * which silently blocks every later speak() - the watchdog retries it once.
+ */
+function speakRobust(utterance: SpeechSynthesisUtterance) {
+  const synth = window.speechSynthesis
+  if (!synth) return
+  const prevOnError = utterance.onerror
+  let settled = false
+  const timer = window.setTimeout(() => {
+    if (settled) return
+    settled = true
+    try {
+      synth.cancel()
+      synth.resume()
+      synth.speak(utterance)
+      synth.resume()
+    } catch {
+      /* ignore */
+    }
+  }, 1800)
+  const done = () => { settled = true; window.clearTimeout(timer) }
+  utterance.onstart = done
+  utterance.onend = done
+  utterance.onerror = (e) => { done(); if (prevOnError) prevOnError.call(utterance, e) }
+  try {
+    synth.speak(utterance)
+    synth.resume()
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Call from a real tap/click. Required on iPhone/iPad/Chrome autoplay policy. */
 export async function unlockAudio(): Promise<void> {
   const ctx = getCtx()
@@ -45,10 +80,12 @@ export async function unlockAudio(): Promise<void> {
   if (window.speechSynthesis) {
     loadVoices()
     try {
-      window.speechSynthesis.cancel()
+      // Warm the engine with a near-silent utterance. Volume must stay > 0:
+      // some Android TTS engines drop volume-0 utterances without callbacks,
+      // which wedges the WebView speech queue and silences all later speech.
       const warm = new SpeechSynthesisUtterance(' ')
-      warm.volume = 0
-      window.speechSynthesis.speak(warm)
+      warm.volume = 0.02
+      speakRobust(warm)
     } catch {
       /* ignore */
     }
@@ -150,6 +187,7 @@ export class AudioManager {
     // engines the first utterance right after cancel() is dropped silently.
     if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
       window.speechSynthesis.cancel()
+      window.speechSynthesis.resume()
     }
     // If the engine rejects the localized utterance, retry once with a bare
     // default-voice utterance so the kid still hears the praise.
@@ -157,9 +195,9 @@ export class AudioManager {
       if (this.muted) return
       const bare = new SpeechSynthesisUtterance(utterance.text)
       bare.rate = utterance.rate
-      window.speechSynthesis.speak(bare)
+      speakRobust(bare)
     }
-    window.speechSynthesis.speak(utterance)
+    speakRobust(utterance)
   }
 
   public speakWellDone(name: string) {
@@ -170,10 +208,39 @@ export class AudioManager {
     this.speakPraise('Try again', name)
   }
 
+  /**
+   * Speak the praise line right now (from a settings tap) and report exactly
+   * what happened, so a silent phone becomes diagnosable on the phone.
+   */
+  public testSpeech(name: string): Promise<string> {
+    return new Promise((resolve) => {
+      const synth = window.speechSynthesis
+      if (!synth) { resolve('Speech is not available in this app shell'); return }
+      loadVoices()
+      const count = synth.getVoices().length
+      const soundState = this.muted ? 'Sound is OFF in settings' : 'Sound is ON'
+      let finished = false
+      const finish = (msg: string) => { if (!finished) { finished = true; resolve(msg) } }
+      const utterance = this.makePraiseUtterance('Well done', name) || new SpeechSynthesisUtterance(`Well done, ${name}!`)
+      utterance.volume = 1
+      utterance.onstart = () => finish(`Playing "${utterance.text}" - ${soundState}, ${count} voices found`)
+      utterance.onerror = (e) => finish(`Speech engine error: ${(e as SpeechSynthesisErrorEvent).error || 'unknown'} - ${soundState}, ${count} voices found`)
+      window.setTimeout(() => finish(`Nothing started within 3s (speech queue stalled) - ${soundState}, ${count} voices found`), 3000)
+      try { synth.cancel() } catch { /* ignore */ }
+      try {
+        synth.speak(utterance)
+        synth.resume()
+      } catch {
+        finish('Speech engine threw when asked to speak')
+      }
+    })
+  }
+
   public speak(text: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
     window.speechSynthesis.cancel()
+    window.speechSynthesis.resume()
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.rate = 0.95
     utterance.pitch = 1.05
@@ -188,7 +255,8 @@ export class AudioManager {
       utterance.voice = voice
       utterance.lang = voice.lang
     }
-    window.speechSynthesis.speak(utterance)
+    window.speechSynthesis.resume()
+    speakRobust(utterance)
   }
 
   public playJump() {

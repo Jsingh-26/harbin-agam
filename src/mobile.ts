@@ -1,7 +1,7 @@
 import { registerPlugin } from '@capacitor/core'
 import { Game } from './game'
 import type { CharacterId, Difficulty } from './game'
-import { unlockAudio } from './audio'
+import { AudioManager, unlockAudio } from './audio'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
 const UpdateCheck = registerPlugin<{ check(): Promise<{ status: string; version?: string; message?: string }> }>('UpdateCheck')
@@ -42,6 +42,8 @@ shell.innerHTML = `
       <p class="how-to">Drag left or right to walk &middot; Swipe up to jump &middot; Tap the glowing switch</p>
       <button class="mobile-play" id="resume-button">Keep playing</button>
       <label><span>Sound</span><input type="checkbox" id="sound-toggle"></label>
+      <button class="quiet-button" id="voice-test-button">Test voice</button>
+      <p class="update-status" id="voice-test-status"></p>
       <label><span>Light haptics</span><input type="checkbox" id="haptic-toggle"></label>
       <label><span>Reduced motion</span><input type="checkbox" id="motion-toggle"></label>
       <label><span>Difficulty</span><select id="difficulty-select"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
@@ -100,6 +102,15 @@ $('resume-button').addEventListener('click', () => setPaused(false))
 function home() { game?.destroy(); game = null; clearGestures(); modal.classList.add('hidden'); showOnly(menu) }
 $('home-button').addEventListener('click', home); $('win-home').addEventListener('click', home)
 $<HTMLInputElement>('sound-toggle').addEventListener('change', e => { settings.muted = !(e.target as HTMLInputElement).checked; game?.setMuted(settings.muted); persist() })
+let voiceTester: AudioManager | null = null
+$('voice-test-button').addEventListener('click', () => {
+  const status = $('voice-test-status')
+  status.textContent = 'Speaking...'
+  void unlockAudio().then(() => {
+    if (!voiceTester) voiceTester = new AudioManager(false)
+    return voiceTester.testSpeech(character === 'harbin' ? 'Harbin' : 'Agam')
+  }).then((msg) => { status.textContent = msg }).catch(() => { status.textContent = 'Speech failed to start' })
+})
 $<HTMLInputElement>('haptic-toggle').addEventListener('change', e => { settings.haptics = (e.target as HTMLInputElement).checked; persist(); haptic() })
 $<HTMLInputElement>('motion-toggle').addEventListener('change', e => { settings.reducedMotion = (e.target as HTMLInputElement).checked; game?.setReducedMotion(settings.reducedMotion); persist() })
 $<HTMLSelectElement>('difficulty-select').addEventListener('change', e => { settings.difficulty = (e.target as HTMLSelectElement).value as Difficulty; persist() })
