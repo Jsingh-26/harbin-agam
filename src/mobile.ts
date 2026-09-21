@@ -1,8 +1,10 @@
+import { registerPlugin } from '@capacitor/core'
 import { Game } from './game'
 import type { CharacterId, Difficulty } from './game'
 import { unlockAudio } from './audio'
 
 const app = document.querySelector<HTMLDivElement>('#app')!
+const UpdateCheck = registerPlugin<{ check(): Promise<{ status: string; version?: string; message?: string }> }>('UpdateCheck')
 type Settings = { muted: boolean; haptics: boolean; reducedMotion: boolean; difficulty: Difficulty }
 const saved = (() => { try { return JSON.parse(localStorage.getItem('harbin-agam-mobile-settings') || '{}') } catch { return {} } })() as Partial<Settings>
 const settings: Settings = { muted: saved.muted ?? false, haptics: saved.haptics ?? true, reducedMotion: saved.reducedMotion ?? false, difficulty: saved.difficulty ?? 'easy' }
@@ -41,6 +43,8 @@ shell.innerHTML = `
       <label><span>Light haptics</span><input type="checkbox" id="haptic-toggle"></label>
       <label><span>Reduced motion</span><input type="checkbox" id="motion-toggle"></label>
       <label><span>Difficulty</span><select id="difficulty-select"><option value="easy">Easy</option><option value="medium">Medium</option><option value="hard">Hard</option></select></label>
+      <button class="quiet-button" id="update-button">Check for updates</button>
+      <p class="update-status" id="update-status"></p>
       <button class="quiet-button" id="home-button">Back to home</button>
     </div>
   </div>
@@ -93,6 +97,21 @@ $<HTMLInputElement>('sound-toggle').addEventListener('change', e => { settings.m
 $<HTMLInputElement>('haptic-toggle').addEventListener('change', e => { settings.haptics = (e.target as HTMLInputElement).checked; persist(); haptic() })
 $<HTMLInputElement>('motion-toggle').addEventListener('change', e => { settings.reducedMotion = (e.target as HTMLInputElement).checked; game?.setReducedMotion(settings.reducedMotion); persist() })
 $<HTMLSelectElement>('difficulty-select').addEventListener('change', e => { settings.difficulty = (e.target as HTMLSelectElement).value as Difficulty; persist() })
+
+$('update-button').addEventListener('click', async () => {
+  const status = $('update-status')
+  status.textContent = 'Checking...'
+  haptic()
+  try {
+    const result = await UpdateCheck.check()
+    if (result.status === 'latest') status.textContent = 'You have the newest version'
+    else if (result.status === 'updating') status.textContent = `Update ${result.version ?? ''} found - follow the update prompt`
+    else if (result.status === 'unavailable') status.textContent = 'Updates arrive through the Firebase app once it is set up'
+    else status.textContent = `Could not check: ${result.message ?? 'please try again later'}`
+  } catch {
+    status.textContent = 'Could not check for updates yet'
+  }
+})
 
 document.addEventListener('visibilitychange', () => { if (document.hidden && game) setPaused(true) })
 
