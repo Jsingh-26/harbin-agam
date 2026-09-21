@@ -65,3 +65,18 @@ Use the scripts in package.json: install, dev, and production build. Output is i
 - Web Audio API plus Web Speech API
 - Pure client-side, no database
 - pointerdown / pointerup virtual controls; browser scroll and pinch-zoom blocked on game buttons
+
+## Android mobile edition
+
+The Android edition is a bundled, offline Capacitor app with package ID `com.jsingh26.harbinagam`. The existing Vite web app remains the default browser experience. Native-only UI is selected at runtime through Capacitor.
+
+Build requirements: Node 22+, JDK 21, Android SDK 36.
+
+```bash
+npm ci
+npm run build
+npx cap sync android
+./android/gradlew -p android assembleDebug
+```
+
+The review APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`.

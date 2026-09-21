@@ -3,3 +3,14 @@ dist
 .DS_Store
 .vercel
 *.local
+
+# Android local SDK path
+android/local.properties
+
+# Android signing secrets (never commit)
+android/keystore.properties
+*.keystore
+*.jks
+
+# Firebase app config (never commit)
+android/app/google-services.json
