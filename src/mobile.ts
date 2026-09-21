@@ -34,12 +34,12 @@ shell.innerHTML = `
     <canvas id="mobile-canvas"></canvas>
     <div class="gesture-layer" id="gesture-layer" aria-label="Game area. Swipe left or right to walk. Swipe up to jump."></div>
     <button class="pause-orb" id="pause-button" aria-label="Pause">Ⅱ</button>
-    <div class="gesture-hint hidden" id="gesture-hint"><b>How to play</b><span>Swipe left or right to walk</span><span>Swipe up to jump</span><span>Tap the glowing switch to open the way</span></div>
+    <div class="gesture-hint hidden" id="gesture-hint"><b>How to play</b><span>Swipe left or right to walk</span><span>Swipe up to jump</span><span>Tap the glowing switch to act</span><span>Tap anywhere else to stop</span></div>
   </section>
   <div class="modal hidden" id="pause-modal" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2 id="modal-title">Paused</h2>
-      <p class="how-to">Swipe left or right to walk &middot; Swipe up to jump &middot; Tap the glowing switch</p>
+      <p class="how-to">Swipe left or right to walk &middot; Swipe up to jump &middot; Tap to act or stop</p>
       <button class="mobile-play" id="resume-button">Keep playing</button>
       <label><span>Sound</span><input type="checkbox" id="sound-toggle"></label>
       <label><span>Light haptics</span><input type="checkbox" id="haptic-toggle"></label>
@@ -121,17 +121,15 @@ $('update-button').addEventListener('click', async () => {
 
 document.addEventListener('visibilitychange', () => { if (document.hidden && game) setPaused(true) })
 
-// ---- Gesture controls: no visible buttons. Swipe left or right (and hold) to
-// walk, swipe up to jump, tap the glowing switch to use it. ----
+// ---- Gesture controls: no visible buttons. A completed swipe left or right
+// starts walking that way (no holding), swipe up jumps, tap the glowing switch
+// to act, tap anywhere else to stop walking. ----
 
 function currentKeys() { return character === 'harbin' ? { left: 'a', right: 'd', jump: 'w', action: 's' } : { left: 'arrowleft', right: 'arrowright', jump: 'arrowup', action: 'arrowdown' } }
 
-type PointerTrack = { startX: number; startY: number; lastX: number; lastY: number; startT: number; moved: number; riseMarkY: number; riseMarkT: number }
+type PointerTrack = { startX: number; startY: number; lastX: number; lastY: number; startT: number; moved: number }
 const pointers = new Map<number, PointerTrack>()
-let movePointerId: number | null = null
 let moveDir: 'left' | 'right' | null = null
-
-const SWIPE_PX = 28
 
 function canvasScale() { const r = canvas.getBoundingClientRect(); return { sx: r.width / Math.max(1, canvas.width), sy: r.height / Math.max(1, canvas.height) } }
 function gesturesActive() { return Boolean(game) && !paused }
@@ -144,46 +142,46 @@ function applyMove(dir: 'left' | 'right' | null) {
   if (dir) { game?.pressKey(keys[dir]); haptic(6) }
 }
 
-function steer(clientX: number, track: PointerTrack) {
-  const dx = clientX - track.startX
-  applyMove(Math.abs(dx) < SWIPE_PX ? null : dx < 0 ? 'left' : 'right')
+function doJump() {
+  const keys = currentKeys()
+  game?.pressKey(keys.jump)
+  haptic(10)
+  window.setTimeout(() => game?.releaseKey(keys.jump), 90)
 }
 
-function checkJump(e: PointerEvent, track: PointerTrack) {
-  const now = performance.now()
-  const rise = track.riseMarkY - e.clientY
-  if (rise > 34 && now - track.riseMarkT < 450) {
-    track.riseMarkY = e.clientY
-    track.riseMarkT = now
-    const keys = currentKeys()
-    game?.pressKey(keys.jump)
-    haptic(10)
-    window.setTimeout(() => game?.releaseKey(keys.jump), 90)
-  } else if (e.clientY > track.riseMarkY) {
-    track.riseMarkY = e.clientY
-    track.riseMarkT = now
-  }
-}
-
-function maybeTap(e: PointerEvent, track: PointerTrack) {
-  if (!game || performance.now() - track.startT > 350 || track.moved > 16) return
-  if (!game.isActionAvailableNow()) return
+function trySwitch(e: PointerEvent): boolean {
+  if (!game || !game.isActionAvailableNow()) return false
   const sp = game.getSwitchScreenPoint()
-  if (!sp) return
+  if (!sp) return false
   const rect = canvas.getBoundingClientRect()
   const { sx, sy } = canvasScale()
   const dx = e.clientX - (rect.left + sp.x * sx)
   const dy = e.clientY - (rect.top + sp.y * sy)
-  if (dx * dx + dy * dy > 90 * 90) return
+  if (dx * dx + dy * dy > 90 * 90) return false
   const keys = currentKeys()
   game.pressKey(keys.action)
   haptic([15, 40, 15])
   window.setTimeout(() => game?.releaseKey(keys.action), 120)
+  return true
+}
+
+// Classify one completed touch: tap, swipe up (jump), or swipe sideways (walk).
+function finishGesture(e: PointerEvent, track: PointerTrack) {
+  if (!game) return
+  const dx = track.lastX - track.startX
+  const dy = track.lastY - track.startY
+  const adx = Math.abs(dx)
+  const ady = Math.abs(dy)
+  if (track.moved < 16 && performance.now() - track.startT <= 500) {
+    if (!trySwitch(e)) applyMove(null) // tap: act on the switch, otherwise stop
+    return
+  }
+  if (ady > 34 && ady > adx && dy < 0) { doJump(); return }
+  if (adx > 40 && adx > ady) applyMove(dx > 0 ? 'right' : 'left')
 }
 
 function clearGestures() {
   pointers.clear()
-  movePointerId = null
   applyMove(null)
 }
 
@@ -192,36 +190,19 @@ gestureLayer.addEventListener('pointerdown', e => {
   e.preventDefault()
   try { gestureLayer.setPointerCapture(e.pointerId) } catch { /* pointer already gone */ }
   $('gesture-hint').classList.add('hidden')
-  const now = performance.now()
-  const track: PointerTrack = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: now, moved: 0, riseMarkY: e.clientY, riseMarkT: now }
-  pointers.set(e.pointerId, track)
-  if (movePointerId === null) movePointerId = e.pointerId
+  pointers.set(e.pointerId, { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: performance.now(), moved: 0 })
 })
 gestureLayer.addEventListener('pointermove', e => {
   const track = pointers.get(e.pointerId)
   if (!track || !gesturesActive()) return
   track.moved = Math.max(track.moved, Math.hypot(e.clientX - track.startX, e.clientY - track.startY))
   track.lastX = e.clientX; track.lastY = e.clientY
-  checkJump(e, track)
-  if (e.pointerId === movePointerId) steer(e.clientX, track)
 })
 function endPointer(e: PointerEvent, cancelled: boolean) {
   const track = pointers.get(e.pointerId)
   if (!track) return
   pointers.delete(e.pointerId)
-  if (!cancelled && gesturesActive()) maybeTap(e, track)
-  if (e.pointerId === movePointerId) {
-    movePointerId = null
-    applyMove(null)
-    const next = pointers.keys().next()
-    if (!next.done) {
-      movePointerId = next.value
-      const promoted = pointers.get(next.value)!
-      promoted.startX = promoted.lastX
-      promoted.startY = promoted.lastY
-      promoted.riseMarkY = promoted.lastY
-    }
-  }
+  if (!cancelled && gesturesActive()) finishGesture(e, track)
 }
 gestureLayer.addEventListener('pointerup', e => endPointer(e, false))
 gestureLayer.addEventListener('pointercancel', e => endPointer(e, true))
