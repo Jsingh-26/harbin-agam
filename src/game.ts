@@ -631,8 +631,36 @@ export class Game {
   private renderPlayerHud(player: Player, side: 'left' | 'right') {
     const { w } = this.screenSize()
     const padding = Math.max(12, Math.round(w * 0.02))
-    const boxW = Math.min(240, Math.round(w * 0.28))
     const mobileHud = this.gestureHints
+    if (mobileHud) {
+      // Compact single-player card, always top-left: name + hearts on one
+      // row, star count beneath. One kid plays on mobile, so the HUD never
+      // sits on the right under the pause button.
+      const rowPad = 12
+      const boxW = Math.min(190, Math.round(w * 0.24))
+      const boxH = 66
+      const x = padding
+      this.ctx.fillStyle = player.name === 'Harbin' ? 'rgba(0, 206, 209, 0.85)' : 'rgba(255, 165, 0, 0.85)'
+      this.ctx.fillRect(x, padding, boxW, boxH)
+      this.ctx.fillStyle = 'white'
+      this.ctx.font = 'bold 19px Arial'
+      this.ctx.textAlign = 'left'
+      this.ctx.fillText(player.name, x + rowPad, padding + 24)
+      const nameW = this.ctx.measureText(player.name).width
+      const heartY = padding + 18
+      for (let i = 0; i < player.maxHealth; i++) {
+        this.ctx.fillStyle = i < player.health ? '#ff0000' : 'rgba(0, 0, 0, 0.35)'
+        this.ctx.beginPath()
+        this.ctx.arc(x + rowPad + nameW + 14 + i * 17, heartY, 6, 0, Math.PI * 2)
+        this.ctx.fill()
+      }
+      this.ctx.fillStyle = '#FFD700'
+      this.ctx.font = 'bold 16px Arial'
+      this.ctx.textAlign = 'left'
+      this.ctx.fillText(`⭐ × ${player.starsCollected}`, x + rowPad, padding + boxH - 12)
+      return
+    }
+    const boxW = Math.min(240, Math.round(w * 0.28))
     const boxH = mobileHud ? Math.max(88, Math.round(w * 0.11)) : Math.max(56, Math.round(w * 0.07))
     const rowPad = mobileHud ? 12 : 10
     const x = side === 'left' ? padding : w - padding - boxW
@@ -663,8 +691,13 @@ export class Game {
   }
 
   private renderHUD() {
-    if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
-    if (this.agam) this.renderPlayerHud(this.agam, 'right')
+    if (this.gestureHints) {
+      const active = this.harbin ?? this.agam
+      if (active) this.renderPlayerHud(active, 'left')
+    } else {
+      if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
+      if (this.agam) this.renderPlayerHud(this.agam, 'right')
+    }
 
     if (this.objectiveStyle === 'toast') {
       this.renderObjectiveToast()
@@ -722,9 +755,9 @@ export class Game {
 
     // Keep the toast clear of the player HUD box (top-left) and the DOM pause button (top-right).
     const padding = Math.max(12, Math.round(w * 0.02))
-    const hudBoxW = Math.min(240, Math.round(w * 0.28))
-    const leftClear = this.harbin ? padding + hudBoxW + 24 : padding
-    const rightClear = this.agam ? padding + hudBoxW + 24 : Math.round(w * 0.09) + 24
+    const hudBoxW = this.gestureHints ? Math.min(190, Math.round(w * 0.24)) : Math.min(240, Math.round(w * 0.28))
+    const leftClear = (this.harbin || this.agam) ? padding + hudBoxW + 24 : padding
+    const rightClear = (!this.gestureHints && this.agam) ? padding + hudBoxW + 24 : Math.round(w * 0.09) + 24
     const zoneW = Math.max(160, w - leftClear - rightClear)
 
     let font = Math.max(26, Math.round(h * 0.042))

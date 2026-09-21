@@ -1,3 +1,14 @@
+import { Capacitor, registerPlugin } from '@capacitor/core'
+
+type NativeTtsBridge = {
+  speak(options: { text: string; rate?: number }): Promise<void>
+  status(): Promise<{ ready: boolean; error?: string | null; engine?: string | null }>
+}
+const NativeTts = registerPlugin<NativeTtsBridge>('NativeTts')
+// WebView speechSynthesis stayed silent on the user's device across several
+// builds, so on the real app we speak through Android's native TTS engine.
+const runningNative = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
+
 let sharedCtx: AudioContext | null = null
 let unlocked = false
 let voicesReady = false
@@ -23,6 +34,10 @@ if (typeof window !== 'undefined' && window.speechSynthesis) {
   window.speechSynthesis.addEventListener('voiceschanged', loadVoices)
 }
 
+
+function phoneticName(name: string): string {
+  return name === 'Harbin' ? 'Hur-bin' : name === 'Agam' ? 'Uh-gum' : name
+}
 
 /**
  * Speak and unwedge the queue if it stalls. Android WebView TTS can leave an
@@ -179,6 +194,15 @@ export class AudioManager {
 
   /** Say a short praise phrase with the kid's name in one utterance. */
   private speakPraise(phrase: string, name: string) {
+    if (this.muted) return
+    if (runningNative) {
+      NativeTts.speak({ text: `${phrase}, ${phoneticName(name)}!`, rate: 0.9 }).catch(() => this.speakPraiseWeb(phrase, name))
+      return
+    }
+    this.speakPraiseWeb(phrase, name)
+  }
+
+  private speakPraiseWeb(phrase: string, name: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
     const utterance = this.makePraiseUtterance(phrase, name)
@@ -212,7 +236,18 @@ export class AudioManager {
    * Speak the praise line right now (from a settings tap) and report exactly
    * what happened, so a silent phone becomes diagnosable on the phone.
    */
-  public testSpeech(name: string): Promise<string> {
+  public async testSpeech(name: string): Promise<string> {
+    if (runningNative) {
+      try {
+        const st = await NativeTts.status()
+        if (!st.ready) return `Native speech not ready${st.error ? ': ' + st.error : ''}`
+        const line = `Well done, ${phoneticName(name)}!`
+        await NativeTts.speak({ text: line, rate: 0.9 })
+        return `Spoke "${line}" via device speech engine (${st.engine || 'default'}) - Sound is ${this.muted ? 'OFF in settings' : 'ON'}`
+      } catch (e) {
+        return `Native speech error: ${e instanceof Error ? e.message : String(e)}`
+      }
+    }
     return new Promise((resolve) => {
       const synth = window.speechSynthesis
       if (!synth) { resolve('Speech is not available in this app shell'); return }
@@ -237,6 +272,15 @@ export class AudioManager {
   }
 
   public speak(text: string) {
+    if (this.muted) return
+    if (runningNative) {
+      NativeTts.speak({ text, rate: 0.95 }).catch(() => this.speakWeb(text))
+      return
+    }
+    this.speakWeb(text)
+  }
+
+  private speakWeb(text: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
     window.speechSynthesis.cancel()
