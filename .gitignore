@@ -3,3 +3,6 @@ dist
 .DS_Store
 .vercel
 *.local
+
+# Android local SDK path
+android/local.properties

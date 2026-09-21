@@ -12,6 +12,7 @@ import { AudioManager } from './audio'
 export type PlayMode = '2p' | '1p'
 export type CharacterId = 'harbin' | 'agam'
 export type Difficulty = 'easy' | 'medium' | 'hard'
+export type GameOptions = { assistedJump?: boolean; reducedMotion?: boolean; maxParticles?: number; onActionAvailable?: (visible: boolean) => void; onImpact?: () => void }
 
 export class Game {
   private canvas: HTMLCanvasElement
@@ -47,6 +48,11 @@ export class Game {
   private onKeyDown: (e: KeyboardEvent) => void
   private onKeyUp: (e: KeyboardEvent) => void
   private onViewportResize: () => void
+  private paused = false
+  private reducedMotion = false
+  private maxParticles = 200
+  private onActionAvailable?: (visible: boolean) => void
+  private onImpact?: () => void
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -54,7 +60,8 @@ export class Game {
     muted: boolean,
     winCallback: (harbinStars: number, agamStars: number) => void,
     mode: PlayMode = '2p',
-    character: CharacterId = 'harbin'
+    character: CharacterId = 'harbin',
+    options: GameOptions = {}
   ) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')!
@@ -63,6 +70,10 @@ export class Game {
     this.audioManager = new AudioManager(muted)
     this.mode = mode
     this.character = character
+    this.reducedMotion = options.reducedMotion ?? false
+    this.maxParticles = options.maxParticles ?? 200
+    this.onActionAvailable = options.onActionAvailable
+    this.onImpact = options.onImpact
 
     this.onResize = () => this.resizeCanvas()
     this.onViewportResize = () => this.resizeCanvas()
@@ -72,10 +83,10 @@ export class Game {
 
     const spawn1p = this.mode === '1p'
     if (!spawn1p || this.character === 'harbin') {
-      this.harbin = new Player(100, 500, '#00CED1', 'Harbin', 'w', 'a', 'd', 's')
+      this.harbin = new Player(100, 500, '#00CED1', 'Harbin', 'w', 'a', 'd', 's', options.assistedJump)
     }
     if (!spawn1p || this.character === 'agam') {
-      this.agam = new Player(200, 500, '#FFA500', 'Agam', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown')
+      this.agam = new Player(200, 500, '#FFA500', 'Agam', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown', options.assistedJump)
     }
 
     this.createLevel()
@@ -248,12 +259,20 @@ export class Game {
     this.keys.clear()
   }
 
-  public setMuted(muted: boolean) {
-    this.audioManager.setMuted(muted)
+  public setMuted(muted: boolean) { this.audioManager.setMuted(muted) }
+  public setPaused(paused: boolean) {
+    this.paused = paused
+    this.keys.clear()
+    this.justPressed.clear()
+    this.lastFrameTime = 0
+    if (paused) this.audioManager.stopBackgroundMusic()
+    else this.audioManager.startBackgroundMusic()
   }
+  public setReducedMotion(value: boolean) { this.reducedMotion = value }
 
   private gameLoop = (time: number) => {
     if (!this.running) return
+    if (this.paused) { requestAnimationFrame(this.gameLoop); return }
 
     if (this.lastFrameTime === 0) this.lastFrameTime = time
     let elapsed = time - this.lastFrameTime
@@ -333,7 +352,8 @@ export class Game {
         } else {
           player.takeDamage()
           this.audioManager.playHurt()
-          this.cameraShake = 10
+          this.cameraShake = this.reducedMotion ? 0 : 10
+          this.onImpact?.()
         }
       }
     })
@@ -342,7 +362,8 @@ export class Game {
       if (player.checkCollision(spike.x, spike.y, spike.width, spike.height)) {
         player.takeDamage()
         this.audioManager.playHurt()
-        this.cameraShake = 10
+        this.cameraShake = this.reducedMotion ? 0 : 10
+        this.onImpact?.()
       }
     })
 
@@ -391,6 +412,7 @@ export class Game {
       Math.abs(player.y + player.height / 2 - switchCY) < 80
     )
 
+    this.onActionAvailable?.(near.length > 0)
     if (near.length === 0) {
       this.switch.setPrompt(null)
       return
@@ -437,6 +459,7 @@ export class Game {
 
     this.updateSwitchAndDoor()
 
+    if (this.particles.length > this.maxParticles) this.particles.splice(0, this.particles.length - this.maxParticles)
     this.particles = this.particles.filter(p => {
       p.update()
       return p.life > 0
@@ -481,7 +504,7 @@ export class Game {
       this.flashAlpha -= 0.02
     }
 
-    if (this.celebrationOverlay) {
+    if (this.celebrationOverlay && !this.reducedMotion) {
       this.celebrationOverlay.alpha -= 0.008
       if (this.celebrationOverlay.alpha <= 0) {
         this.celebrationOverlay = null
@@ -607,7 +630,7 @@ export class Game {
   }
 
   private createStarBurst(x: number, y: number, color: string) {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < (this.reducedMotion ? 6 : 20); i++) {
       const angle = (Math.PI * 2 * i) / 20
       const speed = 2 + Math.random() * 3
       this.particles.push(new Particle(
