@@ -632,7 +632,9 @@ export class Game {
     const { w } = this.screenSize()
     const padding = Math.max(12, Math.round(w * 0.02))
     const boxW = Math.min(240, Math.round(w * 0.28))
-    const boxH = Math.max(56, Math.round(w * 0.07))
+    const mobileHud = this.gestureHints
+    const boxH = mobileHud ? Math.max(88, Math.round(w * 0.11)) : Math.max(56, Math.round(w * 0.07))
+    const rowPad = mobileHud ? 12 : 10
     const x = side === 'left' ? padding : w - padding - boxW
 
     this.ctx.fillStyle = player.name === 'Harbin' ? 'rgba(0, 206, 209, 0.8)' : 'rgba(255, 165, 0, 0.8)'
@@ -641,20 +643,23 @@ export class Game {
     this.ctx.fillStyle = 'white'
     this.ctx.font = 'bold 24px Arial'
     this.ctx.textAlign = side === 'left' ? 'left' : 'right'
-    const nameX = side === 'left' ? x + 10 : x + boxW - 10
-    this.ctx.fillText(player.name, nameX, padding + 30)
+    const nameX = side === 'left' ? x + rowPad : x + boxW - rowPad
+    this.ctx.fillText(player.name, nameX, padding + (mobileHud ? 28 : 30))
 
+    const heartY = padding + (mobileHud ? 52 : 55)
     for (let i = 0; i < player.maxHealth; i++) {
       this.ctx.fillStyle = i < player.health ? '#ff0000' : '#555'
       this.ctx.beginPath()
-      const hx = side === 'left' ? x + 10 + i * 25 : x + boxW - 10 - i * 25
-      this.ctx.arc(hx, padding + 55, 8, 0, Math.PI * 2)
+      const hx = side === 'left' ? x + rowPad + i * 25 : x + boxW - rowPad - i * 25
+      this.ctx.arc(hx, heartY, 8, 0, Math.PI * 2)
       this.ctx.fill()
     }
 
     this.ctx.fillStyle = '#FFD700'
-    this.ctx.textAlign = 'left'
-    this.ctx.fillText(`⭐ × ${player.starsCollected}`, x + 100, padding + 60)
+    this.ctx.textAlign = mobileHud ? (side === 'left' ? 'left' : 'right') : 'left'
+    const starX = mobileHud ? (side === 'left' ? x + rowPad : x + boxW - rowPad) : x + 100
+    const starY = mobileHud ? padding + boxH - 12 : padding + 60
+    this.ctx.fillText(`⭐ × ${player.starsCollected}`, starX, starY)
   }
 
   private renderHUD() {

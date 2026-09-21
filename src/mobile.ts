@@ -12,6 +12,7 @@ let character: CharacterId = 'harbin'
 let game: Game | null = null
 let paused = false
 let actionWasAvailable = false
+let hintTimer = 0
 
 const shell = document.createElement('main')
 shell.className = 'mobile-shell'
@@ -31,13 +32,14 @@ shell.innerHTML = `
   </section>
   <section class="mobile-game hidden" id="mobile-game">
     <canvas id="mobile-canvas"></canvas>
-    <div class="gesture-layer" id="gesture-layer" aria-label="Game area. Hold left or right of your hero to walk. Swipe up to jump."></div>
+    <div class="gesture-layer" id="gesture-layer" aria-label="Game area. Swipe left or right to walk. Swipe up to jump."></div>
     <button class="pause-orb" id="pause-button" aria-label="Pause">Ⅱ</button>
+    <div class="gesture-hint hidden" id="gesture-hint"><b>How to play</b><span>Swipe left or right to walk</span><span>Swipe up to jump</span><span>Tap the glowing switch to open the way</span></div>
   </section>
   <div class="modal hidden" id="pause-modal" role="dialog" aria-modal="true">
     <div class="modal-card">
       <h2 id="modal-title">Paused</h2>
-      <p class="how-to">Hold left or right of your hero to walk &middot; Swipe up to jump &middot; Tap the glowing switch</p>
+      <p class="how-to">Swipe left or right to walk &middot; Swipe up to jump &middot; Tap the glowing switch</p>
       <button class="mobile-play" id="resume-button">Keep playing</button>
       <label><span>Sound</span><input type="checkbox" id="sound-toggle"></label>
       <label><span>Light haptics</span><input type="checkbox" id="haptic-toggle"></label>
@@ -86,6 +88,10 @@ function start() {
     onImpact: () => haptic()
   })
   game.start()
+  const hint = $('gesture-hint')
+  hint.classList.remove('hidden')
+  window.clearTimeout(hintTimer)
+  hintTimer = window.setTimeout(() => hint.classList.add('hidden'), 6000)
 }
 $('mobile-play').addEventListener('click', start); $('again-button').addEventListener('click', start)
 $('menu-settings').addEventListener('click', () => { modal.classList.remove('hidden'); syncSettings(); $('resume-button').classList.add('hidden'); $('modal-title').textContent = 'Settings' })
@@ -115,18 +121,19 @@ $('update-button').addEventListener('click', async () => {
 
 document.addEventListener('visibilitychange', () => { if (document.hidden && game) setPaused(true) })
 
-// ---- Gesture controls: no visible buttons. Hold left/right of the hero to walk,
-// drag to steer, swipe up to jump, tap the glowing switch to use it. ----
+// ---- Gesture controls: no visible buttons. Swipe left or right (and hold) to
+// walk, swipe up to jump, tap the glowing switch to use it. ----
 
 function currentKeys() { return character === 'harbin' ? { left: 'a', right: 'd', jump: 'w', action: 's' } : { left: 'arrowleft', right: 'arrowright', jump: 'arrowup', action: 'arrowdown' } }
 
-type PointerTrack = { startX: number; startY: number; lastX: number; lastY: number; startT: number; moved: number; riseMarkY: number; riseMarkT: number; steerOffset: number | null }
+type PointerTrack = { startX: number; startY: number; lastX: number; lastY: number; startT: number; moved: number; riseMarkY: number; riseMarkT: number }
 const pointers = new Map<number, PointerTrack>()
 let movePointerId: number | null = null
 let moveDir: 'left' | 'right' | null = null
 
+const SWIPE_PX = 28
+
 function canvasScale() { const r = canvas.getBoundingClientRect(); return { sx: r.width / Math.max(1, canvas.width), sy: r.height / Math.max(1, canvas.height) } }
-function playerCssPoint() { const p = game?.getPlayerScreenPoint(); if (!p) return null; const { sx, sy } = canvasScale(); return { x: p.x * sx, y: p.y * sy } }
 function gesturesActive() { return Boolean(game) && !paused }
 
 function applyMove(dir: 'left' | 'right' | null) {
@@ -134,15 +141,12 @@ function applyMove(dir: 'left' | 'right' | null) {
   const keys = currentKeys()
   game?.releaseKey(keys.left); game?.releaseKey(keys.right)
   moveDir = dir
-  if (dir) game?.pressKey(keys[dir])
+  if (dir) { game?.pressKey(keys[dir]); haptic(6) }
 }
 
 function steer(clientX: number, track: PointerTrack) {
-  const p = playerCssPoint()
-  if (!p) return
-  if (track.steerOffset === null) track.steerOffset = clientX - p.x
-  const effective = track.steerOffset + (clientX - track.startX)
-  applyMove(Math.abs(effective) < 20 ? null : effective < 0 ? 'left' : 'right')
+  const dx = clientX - track.startX
+  applyMove(Math.abs(dx) < SWIPE_PX ? null : dx < 0 ? 'left' : 'right')
 }
 
 function checkJump(e: PointerEvent, track: PointerTrack) {
@@ -162,7 +166,7 @@ function checkJump(e: PointerEvent, track: PointerTrack) {
 }
 
 function maybeTap(e: PointerEvent, track: PointerTrack) {
-  if (!game || performance.now() - track.startT > 350 || track.moved > 20) return
+  if (!game || performance.now() - track.startT > 350 || track.moved > 16) return
   if (!game.isActionAvailableNow()) return
   const sp = game.getSwitchScreenPoint()
   if (!sp) return
@@ -170,7 +174,7 @@ function maybeTap(e: PointerEvent, track: PointerTrack) {
   const { sx, sy } = canvasScale()
   const dx = e.clientX - (rect.left + sp.x * sx)
   const dy = e.clientY - (rect.top + sp.y * sy)
-  if (dx * dx + dy * dy > 70 * 70) return
+  if (dx * dx + dy * dy > 90 * 90) return
   const keys = currentKeys()
   game.pressKey(keys.action)
   haptic([15, 40, 15])
@@ -187,10 +191,11 @@ gestureLayer.addEventListener('pointerdown', e => {
   if (!gesturesActive()) return
   e.preventDefault()
   try { gestureLayer.setPointerCapture(e.pointerId) } catch { /* pointer already gone */ }
+  $('gesture-hint').classList.add('hidden')
   const now = performance.now()
-  const track: PointerTrack = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: now, moved: 0, riseMarkY: e.clientY, riseMarkT: now, steerOffset: null }
+  const track: PointerTrack = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: now, moved: 0, riseMarkY: e.clientY, riseMarkT: now }
   pointers.set(e.pointerId, track)
-  if (movePointerId === null) { movePointerId = e.pointerId; steer(e.clientX, track) }
+  if (movePointerId === null) movePointerId = e.pointerId
 })
 gestureLayer.addEventListener('pointermove', e => {
   const track = pointers.get(e.pointerId)
@@ -212,8 +217,9 @@ function endPointer(e: PointerEvent, cancelled: boolean) {
     if (!next.done) {
       movePointerId = next.value
       const promoted = pointers.get(next.value)!
-      promoted.steerOffset = null
       promoted.startX = promoted.lastX
+      promoted.startY = promoted.lastY
+      promoted.riseMarkY = promoted.lastY
     }
   }
 }

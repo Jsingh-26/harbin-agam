@@ -29,28 +29,30 @@ public class UpdateCheckPlugin extends Plugin {
             return;
         }
 
-        distribution.checkForNewRelease().addOnCompleteListener(checkTask -> {
-            if (!checkTask.isSuccessful()) {
+        // Testers must be signed in before checkForNewRelease can succeed;
+        // sign-in is a no-op when the tester already signed in once.
+        distribution.signInTester().addOnCompleteListener(signInTask -> {
+            if (!signInTask.isSuccessful()) {
                 JSObject ret = new JSObject();
                 ret.put("status", "error");
-                Exception e = checkTask.getException();
-                ret.put("message", e != null && e.getMessage() != null ? e.getMessage() : "check failed");
+                Exception e = signInTask.getException();
+                ret.put("message", e != null && e.getMessage() != null ? e.getMessage() : "sign-in failed");
                 call.resolve(ret);
                 return;
             }
-            AppDistributionRelease release = checkTask.getResult();
-            if (release == null) {
-                JSObject ret = new JSObject();
-                ret.put("status", "latest");
-                call.resolve(ret);
-                return;
-            }
-            distribution.signInTester().addOnCompleteListener(signInTask -> {
-                if (!signInTask.isSuccessful()) {
+            distribution.checkForNewRelease().addOnCompleteListener(checkTask -> {
+                if (!checkTask.isSuccessful()) {
                     JSObject ret = new JSObject();
                     ret.put("status", "error");
-                    Exception e = signInTask.getException();
-                    ret.put("message", e != null && e.getMessage() != null ? e.getMessage() : "sign-in failed");
+                    Exception e = checkTask.getException();
+                    ret.put("message", e != null && e.getMessage() != null ? e.getMessage() : "check failed");
+                    call.resolve(ret);
+                    return;
+                }
+                AppDistributionRelease release = checkTask.getResult();
+                if (release == null) {
+                    JSObject ret = new JSObject();
+                    ret.put("status", "latest");
                     call.resolve(ret);
                     return;
                 }
