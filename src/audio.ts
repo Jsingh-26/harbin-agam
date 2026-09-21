@@ -117,19 +117,24 @@ export class AudioManager {
     if (punjabi) {
       const punjabiName = name === 'Harbin' ? 'ਹਰਬਿਨ' : name === 'Agam' ? 'ਅਗਮ' : name
       utterance.text = `${phrase}, ${punjabiName}!`
-      utterance.lang = punjabi.lang || 'pa-IN'
       utterance.voice = punjabi
+      utterance.lang = punjabi.lang
     } else if (hindi) {
       const hindiName = name === 'Harbin' ? 'हरबिन' : name === 'Agam' ? 'अगम' : name
       utterance.text = `${phrase}, ${hindiName}!`
-      utterance.lang = hindi.lang || 'hi-IN'
       utterance.voice = hindi
+      utterance.lang = hindi.lang
     } else {
+      // No Indian voice available: use the phonetic spelling and leave the
+      // engine on its DEFAULT voice. Forcing lang='en-IN' with no matching
+      // installed voice makes some Android TTS engines drop the utterance.
       const phoneticName = name === 'Harbin' ? 'Hur-bin' : name === 'Agam' ? 'Uh-gum' : name
       utterance.text = `${phrase}, ${phoneticName}!`
-      utterance.lang = 'en-IN'
-      if (indianEn) utterance.voice = indianEn
-      else if (english) utterance.voice = english
+      const fallback = indianEn || english
+      if (fallback) {
+        utterance.voice = fallback
+        utterance.lang = fallback.lang
+      }
     }
 
     return utterance
@@ -145,6 +150,14 @@ export class AudioManager {
     // engines the first utterance right after cancel() is dropped silently.
     if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
       window.speechSynthesis.cancel()
+    }
+    // If the engine rejects the localized utterance, retry once with a bare
+    // default-voice utterance so the kid still hears the praise.
+    utterance.onerror = () => {
+      if (this.muted) return
+      const bare = new SpeechSynthesisUtterance(utterance.text)
+      bare.rate = utterance.rate
+      window.speechSynthesis.speak(bare)
     }
     window.speechSynthesis.speak(utterance)
   }
@@ -165,14 +178,16 @@ export class AudioManager {
     utterance.rate = 0.95
     utterance.pitch = 1.05
     utterance.volume = 1
-    utterance.lang = 'en-IN'
     loadVoices()
     const voices = window.speechSynthesis.getVoices()
     const voice =
       voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ||
       voices.find((v) => /india|hindi|punjabi/i.test(v.name)) ||
       voices.find((v) => v.lang.startsWith('en'))
-    if (voice) utterance.voice = voice
+    if (voice) {
+      utterance.voice = voice
+      utterance.lang = voice.lang
+    }
     window.speechSynthesis.speak(utterance)
   }
 
