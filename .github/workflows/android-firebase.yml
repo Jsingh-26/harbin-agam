@@ -1,0 +1,65 @@
+name: Android - Firebase App Distribution
+
+# Manual, approval-gated private release for Harbin & Agam only.
+# Requires the GitHub Environment "firebase-distribution" (add required
+# reviewers) and the secrets listed in docs/firebase-updates.md.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  distribute:
+    runs-on: ubuntu-latest
+    environment: firebase-distribution
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Restore production keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > android/harbin-agam-release.keystore
+
+      - name: Write keystore.properties
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          {
+            echo "storeFile=harbin-agam-release.keystore"
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=$KEY_PASSWORD"
+          } > android/keystore.properties
+
+      - name: Write google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+
+      - name: Build web bundle
+        run: npm ci && npm run build
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Assemble signed release APK
+        working-directory: android
+        run: ./gradlew assembleRelease
+
+      - name: Upload to Firebase App Distribution (Harbin & Agam app only)
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ secrets.FIREBASE_APP_ID_HARBINAGAM }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: family
+          file: android/app/build/outputs/apk/release/app-release.apk

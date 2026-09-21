@@ -12,7 +12,17 @@ import { AudioManager } from './audio'
 export type PlayMode = '2p' | '1p'
 export type CharacterId = 'harbin' | 'agam'
 export type Difficulty = 'easy' | 'medium' | 'hard'
-export type GameOptions = { assistedJump?: boolean; reducedMotion?: boolean; maxParticles?: number; onActionAvailable?: (visible: boolean) => void; onImpact?: () => void }
+export type GameOptions = {
+  assistedJump?: boolean
+  reducedMotion?: boolean
+  maxParticles?: number
+  onActionAvailable?: (visible: boolean) => void
+  onImpact?: () => void
+  /** 'banner' keeps the original bottom objective bar (default, used on web). 'toast' shows a brief fading message in the top safe area. */
+  objectiveStyle?: 'banner' | 'toast'
+  /** Reword in-world prompts for gesture controls (tap the switch instead of an ACTION button). */
+  gestureHints?: boolean
+}
 
 export class Game {
   private canvas: HTMLCanvasElement
@@ -53,6 +63,11 @@ export class Game {
   private maxParticles = 200
   private onActionAvailable?: (visible: boolean) => void
   private onImpact?: () => void
+  private objectiveStyle: 'banner' | 'toast' = 'banner'
+  private gestureHints = false
+  private toastText = ''
+  private toastUntil = 0
+  private prevDoorOpen = false
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -74,6 +89,8 @@ export class Game {
     this.maxParticles = options.maxParticles ?? 200
     this.onActionAvailable = options.onActionAvailable
     this.onImpact = options.onImpact
+    this.objectiveStyle = options.objectiveStyle ?? 'banner'
+    this.gestureHints = options.gestureHints ?? false
 
     this.onResize = () => this.resizeCanvas()
     this.onViewportResize = () => this.resizeCanvas()
@@ -130,6 +147,35 @@ export class Game {
     return this.character
   }
 
+  /** Player center in canvas pixels under the 1p camera. Null outside 1p mode. */
+  public getPlayerScreenPoint(): { x: number; y: number } | null {
+    if (this.mode !== '1p') return null
+    const player = this.players[0]
+    if (!player) return null
+    const { scale, camX, camY } = this.camera1p()
+    return { x: (player.x + player.width / 2 - camX) * scale, y: (player.y + player.height / 2 - camY) * scale }
+  }
+
+  /** Switch center in canvas pixels under the 1p camera. Null outside 1p mode. */
+  public getSwitchScreenPoint(): { x: number; y: number } | null {
+    if (this.mode !== '1p') return null
+    const { scale, camX, camY } = this.camera1p()
+    return { x: (this.switch.x + this.switch.width / 2 - camX) * scale, y: (this.switch.y + this.switch.height / 2 - camY) * scale }
+  }
+
+  public isActionAvailableNow(): boolean {
+    return !this.door.isOpen && this.playersNearSwitch()
+  }
+
+  private playersNearSwitch(): boolean {
+    const switchCX = this.switch.x + this.switch.width / 2
+    const switchCY = this.switch.y + this.switch.height / 2
+    return this.players.some(player =>
+      Math.abs(player.x + player.width / 2 - switchCX) < 80 &&
+      Math.abs(player.y + player.height / 2 - switchCY) < 80
+    )
+  }
+
   private get players(): Player[] {
     return [this.harbin, this.agam].filter((p): p is Player => p !== null)
   }
@@ -171,6 +217,14 @@ export class Game {
       return { screenW, screenH }
     }
 
+    const { scale, camX, camY } = this.camera1p()
+    ctx.setTransform(scale, 0, 0, scale, -camX * scale, -camY * scale)
+    return { screenW, screenH }
+  }
+
+  private camera1p() {
+    const screenW = this.canvas.width
+    const screenH = this.canvas.height
     const player = this.players[0]
     const aspect = screenW / Math.max(1, screenH)
     const cssW = parseFloat(this.canvas.style.width) || screenW
@@ -193,8 +247,7 @@ export class Game {
     camX = Math.max(0, Math.min(Math.max(0, this.width - viewW), camX))
     camY = Math.max(0, Math.min(Math.max(0, this.height - viewH), camY))
     const scale = screenW / viewW
-    ctx.setTransform(scale, 0, 0, scale, -camX * scale, -camY * scale)
-    return { screenW, screenH }
+    return { scale, camX, camY }
   }
 
   private createLevel() {
@@ -419,7 +472,7 @@ export class Game {
     }
 
     if (this.mode === '1p') {
-      this.switch.setPrompt('Press ACTION!')
+      this.switch.setPrompt(this.gestureHints ? 'Tap the switch!' : 'Press ACTION!')
     } else {
       const labels = near.map(player => (player.name === 'Harbin' ? 'S' : '\u2193'))
       this.switch.setPrompt(`Press ${labels.join(' or ')}!`)
@@ -608,6 +661,11 @@ export class Game {
     if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
     if (this.agam) this.renderPlayerHud(this.agam, 'right')
 
+    if (this.objectiveStyle === 'toast') {
+      this.renderObjectiveToast()
+      return
+    }
+
     const { w, h } = this.screenSize()
     const bannerH = Math.max(44, Math.round(h * 0.08))
     const bannerW = Math.min(w - 24, Math.round(w * 0.8))
@@ -627,6 +685,65 @@ export class Game {
       this.ctx.font = `bold ${bannerFont}px Arial`
     }
     this.ctx.fillText(bannerText, w / 2, bannerY + bannerH * 0.62)
+  }
+
+  private roundRectPath(x: number, y: number, w: number, h: number, r: number) {
+    const ctx = this.ctx
+    const radius = Math.min(r, w / 2, h / 2)
+    ctx.beginPath()
+    ctx.moveTo(x + radius, y)
+    ctx.arcTo(x + w, y, x + w, y + h, radius)
+    ctx.arcTo(x + w, y + h, x, y + h, radius)
+    ctx.arcTo(x, y + h, x, y, radius)
+    ctx.arcTo(x, y, x + w, y, radius)
+    ctx.closePath()
+  }
+
+  /** Brief objective message in the top safe area that fades out. Mobile gesture mode only;
+   *  it never covers the player HUD, pause button, or the play field for long. */
+  private renderObjectiveToast() {
+    const now = performance.now()
+    const doorOpen = this.door.isOpen
+    if ((doorOpen && !this.prevDoorOpen) || this.toastUntil === 0) {
+      this.toastText = doorOpen ? 'Door open! Go to the rainbow to win!' : 'Find the glowing switch to open the door!'
+      this.toastUntil = now + 5200
+    }
+    this.prevDoorOpen = doorOpen
+    if (now >= this.toastUntil) return
+
+    const { w, h } = this.screenSize()
+    const ctx = this.ctx
+    const alpha = Math.min(1, (this.toastUntil - now) / 700)
+
+    // Keep the toast clear of the player HUD box (top-left) and the DOM pause button (top-right).
+    const padding = Math.max(12, Math.round(w * 0.02))
+    const hudBoxW = Math.min(240, Math.round(w * 0.28))
+    const leftClear = this.harbin ? padding + hudBoxW + 24 : padding
+    const rightClear = this.agam ? padding + hudBoxW + 24 : Math.round(w * 0.09) + 24
+    const zoneW = Math.max(160, w - leftClear - rightClear)
+
+    let font = Math.max(26, Math.round(h * 0.042))
+    ctx.font = `bold ${font}px Arial`
+    while (font > 14 && ctx.measureText(this.toastText).width > zoneW - 48) {
+      font -= 2
+      ctx.font = `bold ${font}px Arial`
+    }
+    const pillW = Math.min(zoneW, ctx.measureText(this.toastText).width + 48)
+    const pillH = Math.round(font * 2.2)
+    const x = leftClear + Math.max(0, (zoneW - pillW) / 2)
+    const y = Math.max(10, Math.round(h * 0.025))
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.fillStyle = 'rgba(13, 35, 64, 0.82)'
+    this.roundRectPath(x, y, pillW, pillH, pillH / 2)
+    ctx.fill()
+    ctx.fillStyle = 'white'
+    ctx.font = `bold ${font}px Arial`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(this.toastText, x + pillW / 2, y + pillH / 2 + 1)
+    ctx.restore()
   }
 
   private createStarBurst(x: number, y: number, color: string) {

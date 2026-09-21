@@ -84,14 +84,16 @@ export class AudioManager {
   }
 
   /**
-   * Build an utterance that says a kid's name as close to Punjabi as the
-   * available voices allow:
-   *  - Punjabi (pa / pa-IN / pa-Guru) voice: Gurmukhi text (ਅਗਮ / ਹਰਬਿਨ).
-   *  - Hindi voice: Devanagari text (अगम / हरबिन). Hindi engines read
+   * Voice pick ordered for Punjabi-first pronunciation:
+   *  - Punjabi (pa / pa-IN / pa-Guru) voice: name in Gurmukhi (ਅਗਮ / ਹਰਬਿਨ).
+   *  - Hindi voice: name in Devanagari (अगम / हरबिन). Hindi engines read
    *    Devanagari natively; feeding them Gurmukhi mispronounces the names.
    *  - English fallback: phonetic respelling, HUR-bin / UH-gum, spoken slowly.
+   * The praise phrase stays English ("Well done", "Try again") and is joined
+   * with the name in ONE utterance, so a dropped or delayed second utterance
+   * can never leave the kid hearing only their name.
    */
-  private makeNameUtterance(name: string): SpeechSynthesisUtterance | null {
+  private makePraiseUtterance(phrase: string, name: string): SpeechSynthesisUtterance | null {
     if (!window.speechSynthesis) return null
     loadVoices()
 
@@ -108,20 +110,23 @@ export class AudioManager {
     const english = voices.find((v) => v.lang.toLowerCase().startsWith('en'))
 
     const utterance = new SpeechSynthesisUtterance()
-    utterance.rate = 0.75
+    utterance.rate = 0.8
     utterance.pitch = 1.0
     utterance.volume = 1
 
     if (punjabi) {
-      utterance.text = name === 'Harbin' ? 'ਹਰਬਿਨ' : name === 'Agam' ? 'ਅਗਮ' : name
+      const punjabiName = name === 'Harbin' ? 'ਹਰਬਿਨ' : name === 'Agam' ? 'ਅਗਮ' : name
+      utterance.text = `${phrase}, ${punjabiName}!`
       utterance.lang = punjabi.lang || 'pa-IN'
       utterance.voice = punjabi
     } else if (hindi) {
-      utterance.text = name === 'Harbin' ? 'हरबिन' : name === 'Agam' ? 'अगम' : name
+      const hindiName = name === 'Harbin' ? 'हरबिन' : name === 'Agam' ? 'अगम' : name
+      utterance.text = `${phrase}, ${hindiName}!`
       utterance.lang = hindi.lang || 'hi-IN'
       utterance.voice = hindi
     } else {
-      utterance.text = name === 'Harbin' ? 'Hur-bin' : name === 'Agam' ? 'Uh-gum' : name
+      const phoneticName = name === 'Harbin' ? 'Hur-bin' : name === 'Agam' ? 'Uh-gum' : name
+      utterance.text = `${phrase}, ${phoneticName}!`
       utterance.lang = 'en-IN'
       if (indianEn) utterance.voice = indianEn
       else if (english) utterance.voice = english
@@ -130,43 +135,26 @@ export class AudioManager {
     return utterance
   }
 
-  /** Say a short English praise phrase, then the kid's name with Punjabi pronunciation. */
-  private speakPhraseAndName(phrase: string, name: string) {
+  /** Say a short praise phrase with the kid's name in one utterance. */
+  private speakPraise(phrase: string, name: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
-    loadVoices()
-
-    const voices = window.speechSynthesis.getVoices()
-    const indianEn =
-      voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ||
-      voices.find((v) => /india/i.test(v.name))
-    const english = voices.find((v) => v.lang.toLowerCase().startsWith('en'))
-
-    window.speechSynthesis.cancel()
-
-    const phraseU = new SpeechSynthesisUtterance(phrase)
-    phraseU.rate = 0.9
-    phraseU.pitch = 1.0
-    phraseU.volume = 1
-    phraseU.lang = indianEn?.lang || 'en-IN'
-    if (indianEn) phraseU.voice = indianEn
-    else if (english) phraseU.voice = english
-
-    const nameU = this.makeNameUtterance(name)
-    if (nameU) {
-      phraseU.onend = () => {
-        try { window.speechSynthesis.speak(nameU) } catch { /* ignore */ }
-      }
+    const utterance = this.makePraiseUtterance(phrase, name)
+    if (!utterance) return
+    // Only cancel when something is actually speaking: on some Android TTS
+    // engines the first utterance right after cancel() is dropped silently.
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      window.speechSynthesis.cancel()
     }
-    window.speechSynthesis.speak(phraseU)
+    window.speechSynthesis.speak(utterance)
   }
 
   public speakWellDone(name: string) {
-    this.speakPhraseAndName('Well done', name)
+    this.speakPraise('Well done', name)
   }
 
   public speakEncouragement(name: string) {
-    this.speakPhraseAndName('Try again', name)
+    this.speakPraise('Try again', name)
   }
 
   public speak(text: string) {
