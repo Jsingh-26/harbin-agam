@@ -69,3 +69,7 @@ The build runs the TypeScript compiler and Vite and writes static files to `dist
 | `docs/images/gameplay.png` | Gameplay screenshot shown above. |
 
 The web game runs in the browser with no backend, account system, or saved progress. The Android project belongs to the separate review branch linked above.
+
+## License
+
+MIT
