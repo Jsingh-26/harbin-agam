@@ -1,67 +1,71 @@
-# Harbin & Agam
+# Two-Player Platform Adventure
 
-A polished kids web game built with Vite and TypeScript. No backend, login, or saved progress.
+A browser platformer built with TypeScript and HTML Canvas. Play with two players on one keyboard, or choose the cyan character or orange character for single-player touch play on a phone or iPad. Collect stars, dodge spikes, stomp enemies, and find the glowing switch that opens the way to the rainbow exit.
 
-**Harbin** (girl, cyan `#00CED1`, older) and **Agam** (boy, orange `#FFA500`, younger).
+[Play the web game](https://harbin-agam-game.vercel.app/) · [Android edition and review status](https://github.com/Jsingh-26/harbin-agam/pull/1)
 
-## Devices
+![The cyan character and orange character beside platforms, stars, enemies, spikes, a glowing switch, and the rainbow exit.](docs/images/gameplay.png)
 
-Pick Laptop, Phone, or iPad on the first screen.
+## At a glance
 
-- Laptop / desktop: same-screen 2-player (not turns). Keyboard. Both kids play together.
-- Phone: single-player with on-screen Left, Right, Jump, and Action. Pick Harbin or Agam. Only that child is in the level.
-- iPad: same as phone (touch, 1-player, character pick).
+| Item | Details |
+| --- | --- |
+| Web stack | TypeScript, Vite, HTML Canvas, Web Audio API, Web Speech API |
+| Play modes | Laptop/desktop: two players play simultaneously on one keyboard. Phone/iPad: single-player with a character choice and on-screen buttons. |
+| Difficulty | Easy / Medium / Hard; higher settings add stars, enemies, and spikes and increase enemy speed. |
+| Hosting | Vercel |
+| Android | A separate Capacitor edition lives in a review branch under [PR #1](https://github.com/Jsingh-26/harbin-agam/pull/1). It is not merged into `main`. |
 
-Two-player is only on laptop. iPad is treated like a phone (1P touch).
+## Gameplay
 
-The canvas fits the screen (contain / letterbox) on phones, iPad, and desktop. No 80 percent browser zoom needed.
+- Move and jump across regular, moving, and bouncy platforms.
+- Collect sparkling stars to increase your character's star count and trigger visual celebrations and spoken praise when supported by the browser.
+- Stomp enemies from above to defeat them. Other enemy contact and spikes cost a heart, with a short period of invulnerability after damage.
+- When all hearts are lost, respawn at the start with full hearts and keep the stars already collected.
+- Stand near the glowing switch and press your Action control to open the door. Walk into the rainbow exit to win; collecting every star is optional.
+- Use the mute button to toggle sound and speech.
 
-## How to win
+## Controls
 
-1. Move and jump around the level.
-2. Grab sparkling stars (spoken praise plus a fullscreen overlay).
-3. Stand near the glowing switch and press ACTION to OPEN THE DOOR.
-4. Walk through the rainbow EXIT.
+| Player or device | Move left / right | Jump | Action: open the door near the switch |
+| --- | --- | --- | --- |
+| cyan character (keyboard) | A / D | W | S |
+| orange character (keyboard) | Left / Right arrows | Up arrow | Down arrow |
+| Phone / iPad (either character, single-player) | On-screen Left / Right buttons | On-screen JUMP button | On-screen ACTION button |
 
-There is a mute button for speech and sound.
+Choose Laptop, Phone, or iPad on the opening screen, then choose a difficulty. Phone and iPad play also ask you to select one character. Hold a direction button to keep moving.
 
-## Laptop controls (2-player)
+## Run locally
 
-Harbin (cyan): W jump, A left, D right, S ACTION
+Use **Node.js 22.12+** and npm. The locked Vite version requires a recent Node.js release.
 
-Agam (orange): Up jump, Left, Right, Down ACTION
+```bash
+git clone https://github.com/Jsingh-26/harbin-agam.git platform-adventure
+cd platform-adventure
+npm install
+npm run dev
+```
 
-Both play at the same time.
+Open the local URL printed by Vite. To create a production build:
 
-## Phone / iPad controls (1-player)
+```bash
+npm run build
+```
 
-Big thumb buttons: Left / Right to move, JUMP, ACTION to open the door.
-Hold a button to keep moving. They sit in the corners so they do not cover the whole playfield.
+The build runs the TypeScript compiler and Vite and writes static files to `dist/`. Use `npm run preview` to preview that build locally.
 
-## Difficulty
+## Project structure
 
-Easy / Medium / Hard (more stars, enemies, and spikes on harder settings).
+| Path | Purpose |
+| --- | --- |
+| `index.html` | HTML shell and module entry point. |
+| `src/main.ts` | Device, difficulty, and character selection; instructions and win screens; touch buttons; mute control; game startup. |
+| `src/game.ts` | Fixed-step game loop, level setup, camera and canvas sizing, collisions, star collection, switch/door interaction, respawning, win detection, and HUD. |
+| `src/entities/` | Player, platform, star, enemy, spike, switch, door, exit, and particle classes with their rendering and behavior. |
+| `src/audio.ts` | Web Audio sound effects and background music, audio unlocking, and Web Speech praise and prompts. |
+| `src/style.css` | Screen layouts, buttons, canvas presentation, and touch-control styling. |
+| `package.json` / `package-lock.json` | npm scripts, development dependencies, and locked dependency versions. |
+| `tsconfig.json` | TypeScript compiler configuration. |
+| `docs/images/gameplay.png` | Gameplay screenshot shown above. |
 
-## Features
-
-- Juice: squash/stretch, particles, camera shake
-- Glowing switch prompt: press ACTION next to it to open the brown door, then walk through the rainbow EXIT
-- Enemies defeated by stomping from above; spikes cost a heart
-- Out of hearts? Respawn at the start with full hearts (stars kept) and a spoken "Try again"
-- Web Speech API praise ("Well done" plus the child's name with Punjabi pronunciation) plus fullscreen overlay on stars
-- Fixed-timestep updates: same game speed on 60 Hz and 120 Hz+ screens
-- High-DPI sharp rendering in 2-player mode
-- Mute button
-
-## Running locally
-
-Need Node.js 18+.
-
-Use the scripts in package.json: install, dev, and production build. Output is in dist/ for static hosts.
-
-## Technical details
-
-- Vite plus TypeScript, canvas rendering
-- Web Audio API plus Web Speech API
-- Pure client-side, no database
-- pointerdown / pointerup virtual controls; browser scroll and pinch-zoom blocked on game buttons
+The web game runs in the browser with no backend, account system, or saved progress. The Android project belongs to the separate review branch linked above.
