@@ -2,7 +2,7 @@
 
 A browser platformer built with TypeScript and HTML Canvas. Play with two players on one keyboard, or choose the cyan character or orange character for single-player touch play on a phone or iPad. Collect stars, dodge spikes, stomp enemies, and find the glowing switch that opens the way to the rainbow exit.
 
-[Play the web game](https://harbin-agam-game.vercel.app/) · [Android edition and review status](https://github.com/Jsingh-26/star-switch/pull/1)
+[Play the web game](https://star-switch.vercel.app/) · [Android edition and review status](https://github.com/Jsingh-26/star-switch/pull/1)
 
 ![The cyan character and orange character beside platforms, stars, enemies, spikes, a glowing switch, and the rainbow exit.](docs/images/gameplay.png)
 
