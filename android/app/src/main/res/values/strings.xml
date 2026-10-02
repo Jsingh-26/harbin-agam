@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Harbin &amp; Agam</string>
+    <string name="title_activity_main">Harbin &amp; Agam</string>
+    <string name="package_name">com.jsingh26.harbinagam</string>
+    <string name="custom_url_scheme">com.jsingh26.harbinagam</string>
+</resources>

@@ -1,3 +1,14 @@
+import { Capacitor, registerPlugin } from '@capacitor/core'
+
+type NativeTtsBridge = {
+  speak(options: { text: string; rate?: number }): Promise<void>
+  status(): Promise<{ ready: boolean; error?: string | null; engine?: string | null }>
+}
+const NativeTts = registerPlugin<NativeTtsBridge>('NativeTts')
+// WebView speechSynthesis stayed silent on the user's device across several
+// builds, so on the real app we speak through Android's native TTS engine.
+const runningNative = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
+
 let sharedCtx: AudioContext | null = null
 let unlocked = false
 let voicesReady = false
@@ -23,6 +34,45 @@ if (typeof window !== 'undefined' && window.speechSynthesis) {
   window.speechSynthesis.addEventListener('voiceschanged', loadVoices)
 }
 
+
+function phoneticName(name: string): string {
+  return name === 'Harbin' ? 'Hur-bin' : name === 'Agam' ? 'Uh-gum' : name
+}
+
+/**
+ * Speak and unwedge the queue if it stalls. Android WebView TTS can leave an
+ * utterance (often a volume-0 warm-up) stuck at the head of the speech queue,
+ * which silently blocks every later speak() - the watchdog retries it once.
+ */
+function speakRobust(utterance: SpeechSynthesisUtterance) {
+  const synth = window.speechSynthesis
+  if (!synth) return
+  const prevOnError = utterance.onerror
+  let settled = false
+  const timer = window.setTimeout(() => {
+    if (settled) return
+    settled = true
+    try {
+      synth.cancel()
+      synth.resume()
+      synth.speak(utterance)
+      synth.resume()
+    } catch {
+      /* ignore */
+    }
+  }, 1800)
+  const done = () => { settled = true; window.clearTimeout(timer) }
+  utterance.onstart = done
+  utterance.onend = done
+  utterance.onerror = (e) => { done(); if (prevOnError) prevOnError.call(utterance, e) }
+  try {
+    synth.speak(utterance)
+    synth.resume()
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Call from a real tap/click. Required on iPhone/iPad/Chrome autoplay policy. */
 export async function unlockAudio(): Promise<void> {
   const ctx = getCtx()
@@ -45,10 +95,12 @@ export async function unlockAudio(): Promise<void> {
   if (window.speechSynthesis) {
     loadVoices()
     try {
-      window.speechSynthesis.cancel()
+      // Warm the engine with a near-silent utterance. Volume must stay > 0:
+      // some Android TTS engines drop volume-0 utterances without callbacks,
+      // which wedges the WebView speech queue and silences all later speech.
       const warm = new SpeechSynthesisUtterance(' ')
-      warm.volume = 0
-      window.speechSynthesis.speak(warm)
+      warm.volume = 0.02
+      speakRobust(warm)
     } catch {
       /* ignore */
     }
@@ -84,14 +136,16 @@ export class AudioManager {
   }
 
   /**
-   * Build an utterance that says a kid's name as close to Punjabi as the
-   * available voices allow:
-   *  - Punjabi (pa / pa-IN / pa-Guru) voice: Gurmukhi text (ਅਗਮ / ਹਰਬਿਨ).
-   *  - Hindi voice: Devanagari text (अगम / हरबिन). Hindi engines read
+   * Voice pick ordered for Punjabi-first pronunciation:
+   *  - Punjabi (pa / pa-IN / pa-Guru) voice: name in Gurmukhi (ਅਗਮ / ਹਰਬਿਨ).
+   *  - Hindi voice: name in Devanagari (अगम / हरबिन). Hindi engines read
    *    Devanagari natively; feeding them Gurmukhi mispronounces the names.
    *  - English fallback: phonetic respelling, HUR-bin / UH-gum, spoken slowly.
+   * The praise phrase stays English ("Well done", "Try again") and is joined
+   * with the name in ONE utterance, so a dropped or delayed second utterance
+   * can never leave the kid hearing only their name.
    */
-  private makeNameUtterance(name: string): SpeechSynthesisUtterance | null {
+  private makePraiseUtterance(phrase: string, name: string): SpeechSynthesisUtterance | null {
     if (!window.speechSynthesis) return null
     loadVoices()
 
@@ -108,84 +162,145 @@ export class AudioManager {
     const english = voices.find((v) => v.lang.toLowerCase().startsWith('en'))
 
     const utterance = new SpeechSynthesisUtterance()
-    utterance.rate = 0.75
+    utterance.rate = 0.8
     utterance.pitch = 1.0
     utterance.volume = 1
 
     if (punjabi) {
-      utterance.text = name === 'Harbin' ? 'ਹਰਬਿਨ' : name === 'Agam' ? 'ਅਗਮ' : name
-      utterance.lang = punjabi.lang || 'pa-IN'
+      const punjabiName = name === 'Harbin' ? 'ਹਰਬਿਨ' : name === 'Agam' ? 'ਅਗਮ' : name
+      utterance.text = `${phrase}, ${punjabiName}!`
       utterance.voice = punjabi
+      utterance.lang = punjabi.lang
     } else if (hindi) {
-      utterance.text = name === 'Harbin' ? 'हरबिन' : name === 'Agam' ? 'अगम' : name
-      utterance.lang = hindi.lang || 'hi-IN'
+      const hindiName = name === 'Harbin' ? 'हरबिन' : name === 'Agam' ? 'अगम' : name
+      utterance.text = `${phrase}, ${hindiName}!`
       utterance.voice = hindi
+      utterance.lang = hindi.lang
     } else {
-      utterance.text = name === 'Harbin' ? 'Hur-bin' : name === 'Agam' ? 'Uh-gum' : name
-      utterance.lang = 'en-IN'
-      if (indianEn) utterance.voice = indianEn
-      else if (english) utterance.voice = english
+      // No Indian voice available: use the phonetic spelling and leave the
+      // engine on its DEFAULT voice. Forcing lang='en-IN' with no matching
+      // installed voice makes some Android TTS engines drop the utterance.
+      const phoneticName = name === 'Harbin' ? 'Hur-bin' : name === 'Agam' ? 'Uh-gum' : name
+      utterance.text = `${phrase}, ${phoneticName}!`
+      const fallback = indianEn || english
+      if (fallback) {
+        utterance.voice = fallback
+        utterance.lang = fallback.lang
+      }
     }
 
     return utterance
   }
 
-  /** Say a short English praise phrase, then the kid's name with Punjabi pronunciation. */
-  private speakPhraseAndName(phrase: string, name: string) {
+  /** Say a short praise phrase with the kid's name in one utterance. */
+  private speakPraise(phrase: string, name: string) {
+    if (this.muted) return
+    if (runningNative) {
+      NativeTts.speak({ text: `${phrase}, ${phoneticName(name)}!`, rate: 0.9 }).catch(() => this.speakPraiseWeb(phrase, name))
+      return
+    }
+    this.speakPraiseWeb(phrase, name)
+  }
+
+  private speakPraiseWeb(phrase: string, name: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
-    loadVoices()
-
-    const voices = window.speechSynthesis.getVoices()
-    const indianEn =
-      voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ||
-      voices.find((v) => /india/i.test(v.name))
-    const english = voices.find((v) => v.lang.toLowerCase().startsWith('en'))
-
-    window.speechSynthesis.cancel()
-
-    const phraseU = new SpeechSynthesisUtterance(phrase)
-    phraseU.rate = 0.9
-    phraseU.pitch = 1.0
-    phraseU.volume = 1
-    phraseU.lang = indianEn?.lang || 'en-IN'
-    if (indianEn) phraseU.voice = indianEn
-    else if (english) phraseU.voice = english
-
-    const nameU = this.makeNameUtterance(name)
-    if (nameU) {
-      phraseU.onend = () => {
-        try { window.speechSynthesis.speak(nameU) } catch { /* ignore */ }
-      }
+    const utterance = this.makePraiseUtterance(phrase, name)
+    if (!utterance) return
+    // Only cancel when something is actually speaking: on some Android TTS
+    // engines the first utterance right after cancel() is dropped silently.
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+      window.speechSynthesis.cancel()
+      window.speechSynthesis.resume()
     }
-    window.speechSynthesis.speak(phraseU)
+    // If the engine rejects the localized utterance, retry once with a bare
+    // default-voice utterance so the kid still hears the praise.
+    utterance.onerror = () => {
+      if (this.muted) return
+      const bare = new SpeechSynthesisUtterance(utterance.text)
+      bare.rate = utterance.rate
+      speakRobust(bare)
+    }
+    speakRobust(utterance)
   }
 
   public speakWellDone(name: string) {
-    this.speakPhraseAndName('Well done', name)
+    this.speakPraise('Well done', name)
   }
 
   public speakEncouragement(name: string) {
-    this.speakPhraseAndName('Try again', name)
+    this.speakPraise('Try again', name)
+  }
+
+  /**
+   * Speak the praise line right now (from a settings tap) and report exactly
+   * what happened, so a silent phone becomes diagnosable on the phone.
+   */
+  public async testSpeech(name: string): Promise<string> {
+    if (runningNative) {
+      try {
+        const st = await NativeTts.status()
+        if (!st.ready) return `Native speech not ready${st.error ? ': ' + st.error : ''}`
+        const line = `Well done, ${phoneticName(name)}!`
+        await NativeTts.speak({ text: line, rate: 0.9 })
+        return `Spoke "${line}" via device speech engine (${st.engine || 'default'}) - Sound is ${this.muted ? 'OFF in settings' : 'ON'}`
+      } catch (e) {
+        return `Native speech error: ${e instanceof Error ? e.message : String(e)}`
+      }
+    }
+    return new Promise((resolve) => {
+      const synth = window.speechSynthesis
+      if (!synth) { resolve('Speech is not available in this app shell'); return }
+      loadVoices()
+      const count = synth.getVoices().length
+      const soundState = this.muted ? 'Sound is OFF in settings' : 'Sound is ON'
+      let finished = false
+      const finish = (msg: string) => { if (!finished) { finished = true; resolve(msg) } }
+      const utterance = this.makePraiseUtterance('Well done', name) || new SpeechSynthesisUtterance(`Well done, ${name}!`)
+      utterance.volume = 1
+      utterance.onstart = () => finish(`Playing "${utterance.text}" - ${soundState}, ${count} voices found`)
+      utterance.onerror = (e) => finish(`Speech engine error: ${(e as SpeechSynthesisErrorEvent).error || 'unknown'} - ${soundState}, ${count} voices found`)
+      window.setTimeout(() => finish(`Nothing started within 3s (speech queue stalled) - ${soundState}, ${count} voices found`), 3000)
+      try { synth.cancel() } catch { /* ignore */ }
+      try {
+        synth.speak(utterance)
+        synth.resume()
+      } catch {
+        finish('Speech engine threw when asked to speak')
+      }
+    })
   }
 
   public speak(text: string) {
+    if (this.muted) return
+    if (runningNative) {
+      NativeTts.speak({ text, rate: 0.95 }).catch(() => this.speakWeb(text))
+      return
+    }
+    this.speakWeb(text)
+  }
+
+  private speakWeb(text: string) {
     if (this.muted || !window.speechSynthesis) return
     void this.ensureRunning()
     window.speechSynthesis.cancel()
+    window.speechSynthesis.resume()
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.rate = 0.95
     utterance.pitch = 1.05
     utterance.volume = 1
-    utterance.lang = 'en-IN'
     loadVoices()
     const voices = window.speechSynthesis.getVoices()
     const voice =
       voices.find((v) => v.lang.toLowerCase().startsWith('en-in')) ||
       voices.find((v) => /india|hindi|punjabi/i.test(v.name)) ||
       voices.find((v) => v.lang.startsWith('en'))
-    if (voice) utterance.voice = voice
-    window.speechSynthesis.speak(utterance)
+    if (voice) {
+      utterance.voice = voice
+      utterance.lang = voice.lang
+    }
+    window.speechSynthesis.resume()
+    speakRobust(utterance)
   }
 
   public playJump() {

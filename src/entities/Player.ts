@@ -25,6 +25,10 @@ export class Player {
   private invincibleTimer = 0
   private squashStretch = 1
   private scale = 1
+  private coyoteFrames = 0
+  private jumpBufferFrames = 0
+  private assistedJump = false
+  private jumpWasHeld = false
 
   constructor(
     x: number,
@@ -34,7 +38,8 @@ export class Player {
     jumpKey: string,
     leftKey: string,
     rightKey: string,
-    actionKey: string
+    actionKey: string,
+    assistedJump = false
   ) {
     this.x = x
     this.y = y
@@ -44,6 +49,7 @@ export class Player {
     this.leftKey = leftKey.toLowerCase()
     this.rightKey = rightKey.toLowerCase()
     this.actionKey = actionKey.toLowerCase()
+    this.assistedJump = assistedJump
   }
 
   public update(keys: Set<string>, platforms: Platform[]) {
@@ -56,10 +62,18 @@ export class Player {
       this.vx *= 0.8
     }
 
-    // Jump
-    if (keys.has(this.jumpKey) && this.isGrounded) {
+    // Mobile assist: remember a jump just before landing and allow a short step after leaving an edge.
+    if (this.isGrounded) this.coyoteFrames = this.assistedJump ? 7 : 0
+    else if (this.coyoteFrames > 0) this.coyoteFrames--
+    const jumpHeld = keys.has(this.jumpKey)
+    if (jumpHeld && !this.jumpWasHeld) this.jumpBufferFrames = this.assistedJump ? 7 : 1
+    else if (this.jumpBufferFrames > 0) this.jumpBufferFrames--
+    this.jumpWasHeld = jumpHeld
+    if (this.jumpBufferFrames > 0 && (this.isGrounded || this.coyoteFrames > 0)) {
       this.vy = -this.jumpPower
       this.isGrounded = false
+      this.coyoteFrames = 0
+      this.jumpBufferFrames = 0
       this.squashStretch = 1.3
     }
 

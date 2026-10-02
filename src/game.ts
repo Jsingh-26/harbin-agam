@@ -12,6 +12,17 @@ import { AudioManager } from './audio'
 export type PlayMode = '2p' | '1p'
 export type CharacterId = 'harbin' | 'agam'
 export type Difficulty = 'easy' | 'medium' | 'hard'
+export type GameOptions = {
+  assistedJump?: boolean
+  reducedMotion?: boolean
+  maxParticles?: number
+  onActionAvailable?: (visible: boolean) => void
+  onImpact?: () => void
+  /** 'banner' keeps the original bottom objective bar (default, used on web). 'toast' shows a brief fading message in the top safe area. */
+  objectiveStyle?: 'banner' | 'toast'
+  /** Reword in-world prompts for gesture controls (tap the switch instead of an ACTION button). */
+  gestureHints?: boolean
+}
 
 export class Game {
   private canvas: HTMLCanvasElement
@@ -47,6 +58,16 @@ export class Game {
   private onKeyDown: (e: KeyboardEvent) => void
   private onKeyUp: (e: KeyboardEvent) => void
   private onViewportResize: () => void
+  private paused = false
+  private reducedMotion = false
+  private maxParticles = 200
+  private onActionAvailable?: (visible: boolean) => void
+  private onImpact?: () => void
+  private objectiveStyle: 'banner' | 'toast' = 'banner'
+  private gestureHints = false
+  private toastText = ''
+  private toastUntil = 0
+  private prevDoorOpen = false
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -54,7 +75,8 @@ export class Game {
     muted: boolean,
     winCallback: (harbinStars: number, agamStars: number) => void,
     mode: PlayMode = '2p',
-    character: CharacterId = 'harbin'
+    character: CharacterId = 'harbin',
+    options: GameOptions = {}
   ) {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d')!
@@ -63,6 +85,12 @@ export class Game {
     this.audioManager = new AudioManager(muted)
     this.mode = mode
     this.character = character
+    this.reducedMotion = options.reducedMotion ?? false
+    this.maxParticles = options.maxParticles ?? 200
+    this.onActionAvailable = options.onActionAvailable
+    this.onImpact = options.onImpact
+    this.objectiveStyle = options.objectiveStyle ?? 'banner'
+    this.gestureHints = options.gestureHints ?? false
 
     this.onResize = () => this.resizeCanvas()
     this.onViewportResize = () => this.resizeCanvas()
@@ -72,10 +100,10 @@ export class Game {
 
     const spawn1p = this.mode === '1p'
     if (!spawn1p || this.character === 'harbin') {
-      this.harbin = new Player(100, 500, '#00CED1', 'Harbin', 'w', 'a', 'd', 's')
+      this.harbin = new Player(100, 500, '#00CED1', 'Harbin', 'w', 'a', 'd', 's', options.assistedJump)
     }
     if (!spawn1p || this.character === 'agam') {
-      this.agam = new Player(200, 500, '#FFA500', 'Agam', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown')
+      this.agam = new Player(200, 500, '#FFA500', 'Agam', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'ArrowDown', options.assistedJump)
     }
 
     this.createLevel()
@@ -119,6 +147,35 @@ export class Game {
     return this.character
   }
 
+  /** Player center in canvas pixels under the 1p camera. Null outside 1p mode. */
+  public getPlayerScreenPoint(): { x: number; y: number } | null {
+    if (this.mode !== '1p') return null
+    const player = this.players[0]
+    if (!player) return null
+    const { scale, camX, camY } = this.camera1p()
+    return { x: (player.x + player.width / 2 - camX) * scale, y: (player.y + player.height / 2 - camY) * scale }
+  }
+
+  /** Switch center in canvas pixels under the 1p camera. Null outside 1p mode. */
+  public getSwitchScreenPoint(): { x: number; y: number } | null {
+    if (this.mode !== '1p') return null
+    const { scale, camX, camY } = this.camera1p()
+    return { x: (this.switch.x + this.switch.width / 2 - camX) * scale, y: (this.switch.y + this.switch.height / 2 - camY) * scale }
+  }
+
+  public isActionAvailableNow(): boolean {
+    return !this.door.isOpen && this.playersNearSwitch()
+  }
+
+  private playersNearSwitch(): boolean {
+    const switchCX = this.switch.x + this.switch.width / 2
+    const switchCY = this.switch.y + this.switch.height / 2
+    return this.players.some(player =>
+      Math.abs(player.x + player.width / 2 - switchCX) < 80 &&
+      Math.abs(player.y + player.height / 2 - switchCY) < 80
+    )
+  }
+
   private get players(): Player[] {
     return [this.harbin, this.agam].filter((p): p is Player => p !== null)
   }
@@ -160,6 +217,14 @@ export class Game {
       return { screenW, screenH }
     }
 
+    const { scale, camX, camY } = this.camera1p()
+    ctx.setTransform(scale, 0, 0, scale, -camX * scale, -camY * scale)
+    return { screenW, screenH }
+  }
+
+  private camera1p() {
+    const screenW = this.canvas.width
+    const screenH = this.canvas.height
     const player = this.players[0]
     const aspect = screenW / Math.max(1, screenH)
     const cssW = parseFloat(this.canvas.style.width) || screenW
@@ -182,8 +247,7 @@ export class Game {
     camX = Math.max(0, Math.min(Math.max(0, this.width - viewW), camX))
     camY = Math.max(0, Math.min(Math.max(0, this.height - viewH), camY))
     const scale = screenW / viewW
-    ctx.setTransform(scale, 0, 0, scale, -camX * scale, -camY * scale)
-    return { screenW, screenH }
+    return { scale, camX, camY }
   }
 
   private createLevel() {
@@ -248,12 +312,20 @@ export class Game {
     this.keys.clear()
   }
 
-  public setMuted(muted: boolean) {
-    this.audioManager.setMuted(muted)
+  public setMuted(muted: boolean) { this.audioManager.setMuted(muted) }
+  public setPaused(paused: boolean) {
+    this.paused = paused
+    this.keys.clear()
+    this.justPressed.clear()
+    this.lastFrameTime = 0
+    if (paused) this.audioManager.stopBackgroundMusic()
+    else this.audioManager.startBackgroundMusic()
   }
+  public setReducedMotion(value: boolean) { this.reducedMotion = value }
 
   private gameLoop = (time: number) => {
     if (!this.running) return
+    if (this.paused) { requestAnimationFrame(this.gameLoop); return }
 
     if (this.lastFrameTime === 0) this.lastFrameTime = time
     let elapsed = time - this.lastFrameTime
@@ -333,7 +405,8 @@ export class Game {
         } else {
           player.takeDamage()
           this.audioManager.playHurt()
-          this.cameraShake = 10
+          this.cameraShake = this.reducedMotion ? 0 : 10
+          this.onImpact?.()
         }
       }
     })
@@ -342,7 +415,8 @@ export class Game {
       if (player.checkCollision(spike.x, spike.y, spike.width, spike.height)) {
         player.takeDamage()
         this.audioManager.playHurt()
-        this.cameraShake = 10
+        this.cameraShake = this.reducedMotion ? 0 : 10
+        this.onImpact?.()
       }
     })
 
@@ -391,13 +465,14 @@ export class Game {
       Math.abs(player.y + player.height / 2 - switchCY) < 80
     )
 
+    this.onActionAvailable?.(near.length > 0)
     if (near.length === 0) {
       this.switch.setPrompt(null)
       return
     }
 
     if (this.mode === '1p') {
-      this.switch.setPrompt('Press ACTION!')
+      this.switch.setPrompt(this.gestureHints ? 'Tap the switch!' : 'Press ACTION!')
     } else {
       const labels = near.map(player => (player.name === 'Harbin' ? 'S' : '\u2193'))
       this.switch.setPrompt(`Press ${labels.join(' or ')}!`)
@@ -437,6 +512,7 @@ export class Game {
 
     this.updateSwitchAndDoor()
 
+    if (this.particles.length > this.maxParticles) this.particles.splice(0, this.particles.length - this.maxParticles)
     this.particles = this.particles.filter(p => {
       p.update()
       return p.life > 0
@@ -481,7 +557,7 @@ export class Game {
       this.flashAlpha -= 0.02
     }
 
-    if (this.celebrationOverlay) {
+    if (this.celebrationOverlay && !this.reducedMotion) {
       this.celebrationOverlay.alpha -= 0.008
       if (this.celebrationOverlay.alpha <= 0) {
         this.celebrationOverlay = null
@@ -555,8 +631,38 @@ export class Game {
   private renderPlayerHud(player: Player, side: 'left' | 'right') {
     const { w } = this.screenSize()
     const padding = Math.max(12, Math.round(w * 0.02))
+    const mobileHud = this.gestureHints
+    if (mobileHud) {
+      // Compact single-player card, always top-left: name + hearts on one
+      // row, star count beneath. One kid plays on mobile, so the HUD never
+      // sits on the right under the pause button.
+      const rowPad = 12
+      const boxW = Math.min(190, Math.round(w * 0.24))
+      const boxH = 66
+      const x = padding
+      this.ctx.fillStyle = player.name === 'Harbin' ? 'rgba(0, 206, 209, 0.85)' : 'rgba(255, 165, 0, 0.85)'
+      this.ctx.fillRect(x, padding, boxW, boxH)
+      this.ctx.fillStyle = 'white'
+      this.ctx.font = 'bold 19px Arial'
+      this.ctx.textAlign = 'left'
+      this.ctx.fillText(player.name, x + rowPad, padding + 24)
+      const nameW = this.ctx.measureText(player.name).width
+      const heartY = padding + 18
+      for (let i = 0; i < player.maxHealth; i++) {
+        this.ctx.fillStyle = i < player.health ? '#ff0000' : 'rgba(0, 0, 0, 0.35)'
+        this.ctx.beginPath()
+        this.ctx.arc(x + rowPad + nameW + 14 + i * 17, heartY, 6, 0, Math.PI * 2)
+        this.ctx.fill()
+      }
+      this.ctx.fillStyle = '#FFD700'
+      this.ctx.font = 'bold 16px Arial'
+      this.ctx.textAlign = 'left'
+      this.ctx.fillText(`⭐ × ${player.starsCollected}`, x + rowPad, padding + boxH - 12)
+      return
+    }
     const boxW = Math.min(240, Math.round(w * 0.28))
-    const boxH = Math.max(56, Math.round(w * 0.07))
+    const boxH = mobileHud ? Math.max(88, Math.round(w * 0.11)) : Math.max(56, Math.round(w * 0.07))
+    const rowPad = mobileHud ? 12 : 10
     const x = side === 'left' ? padding : w - padding - boxW
 
     this.ctx.fillStyle = player.name === 'Harbin' ? 'rgba(0, 206, 209, 0.8)' : 'rgba(255, 165, 0, 0.8)'
@@ -565,25 +671,38 @@ export class Game {
     this.ctx.fillStyle = 'white'
     this.ctx.font = 'bold 24px Arial'
     this.ctx.textAlign = side === 'left' ? 'left' : 'right'
-    const nameX = side === 'left' ? x + 10 : x + boxW - 10
-    this.ctx.fillText(player.name, nameX, padding + 30)
+    const nameX = side === 'left' ? x + rowPad : x + boxW - rowPad
+    this.ctx.fillText(player.name, nameX, padding + (mobileHud ? 28 : 30))
 
+    const heartY = padding + (mobileHud ? 52 : 55)
     for (let i = 0; i < player.maxHealth; i++) {
       this.ctx.fillStyle = i < player.health ? '#ff0000' : '#555'
       this.ctx.beginPath()
-      const hx = side === 'left' ? x + 10 + i * 25 : x + boxW - 10 - i * 25
-      this.ctx.arc(hx, padding + 55, 8, 0, Math.PI * 2)
+      const hx = side === 'left' ? x + rowPad + i * 25 : x + boxW - rowPad - i * 25
+      this.ctx.arc(hx, heartY, 8, 0, Math.PI * 2)
       this.ctx.fill()
     }
 
     this.ctx.fillStyle = '#FFD700'
-    this.ctx.textAlign = 'left'
-    this.ctx.fillText(`⭐ × ${player.starsCollected}`, x + 100, padding + 60)
+    this.ctx.textAlign = mobileHud ? (side === 'left' ? 'left' : 'right') : 'left'
+    const starX = mobileHud ? (side === 'left' ? x + rowPad : x + boxW - rowPad) : x + 100
+    const starY = mobileHud ? padding + boxH - 12 : padding + 60
+    this.ctx.fillText(`⭐ × ${player.starsCollected}`, starX, starY)
   }
 
   private renderHUD() {
-    if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
-    if (this.agam) this.renderPlayerHud(this.agam, 'right')
+    if (this.gestureHints) {
+      const active = this.harbin ?? this.agam
+      if (active) this.renderPlayerHud(active, 'left')
+    } else {
+      if (this.harbin) this.renderPlayerHud(this.harbin, 'left')
+      if (this.agam) this.renderPlayerHud(this.agam, 'right')
+    }
+
+    if (this.objectiveStyle === 'toast') {
+      this.renderObjectiveToast()
+      return
+    }
 
     const { w, h } = this.screenSize()
     const bannerH = Math.max(44, Math.round(h * 0.08))
@@ -606,8 +725,67 @@ export class Game {
     this.ctx.fillText(bannerText, w / 2, bannerY + bannerH * 0.62)
   }
 
+  private roundRectPath(x: number, y: number, w: number, h: number, r: number) {
+    const ctx = this.ctx
+    const radius = Math.min(r, w / 2, h / 2)
+    ctx.beginPath()
+    ctx.moveTo(x + radius, y)
+    ctx.arcTo(x + w, y, x + w, y + h, radius)
+    ctx.arcTo(x + w, y + h, x, y + h, radius)
+    ctx.arcTo(x, y + h, x, y, radius)
+    ctx.arcTo(x, y, x + w, y, radius)
+    ctx.closePath()
+  }
+
+  /** Brief objective message in the top safe area that fades out. Mobile gesture mode only;
+   *  it never covers the player HUD, pause button, or the play field for long. */
+  private renderObjectiveToast() {
+    const now = performance.now()
+    const doorOpen = this.door.isOpen
+    if ((doorOpen && !this.prevDoorOpen) || this.toastUntil === 0) {
+      this.toastText = doorOpen ? 'Door open! Go to the rainbow to win!' : 'Find the glowing switch to open the door!'
+      this.toastUntil = now + 5200
+    }
+    this.prevDoorOpen = doorOpen
+    if (now >= this.toastUntil) return
+
+    const { w, h } = this.screenSize()
+    const ctx = this.ctx
+    const alpha = Math.min(1, (this.toastUntil - now) / 700)
+
+    // Keep the toast clear of the player HUD box (top-left) and the DOM pause button (top-right).
+    const padding = Math.max(12, Math.round(w * 0.02))
+    const hudBoxW = this.gestureHints ? Math.min(190, Math.round(w * 0.24)) : Math.min(240, Math.round(w * 0.28))
+    const leftClear = (this.harbin || this.agam) ? padding + hudBoxW + 24 : padding
+    const rightClear = (!this.gestureHints && this.agam) ? padding + hudBoxW + 24 : Math.round(w * 0.09) + 24
+    const zoneW = Math.max(160, w - leftClear - rightClear)
+
+    let font = Math.max(26, Math.round(h * 0.042))
+    ctx.font = `bold ${font}px Arial`
+    while (font > 14 && ctx.measureText(this.toastText).width > zoneW - 48) {
+      font -= 2
+      ctx.font = `bold ${font}px Arial`
+    }
+    const pillW = Math.min(zoneW, ctx.measureText(this.toastText).width + 48)
+    const pillH = Math.round(font * 2.2)
+    const x = leftClear + Math.max(0, (zoneW - pillW) / 2)
+    const y = Math.max(10, Math.round(h * 0.025))
+
+    ctx.save()
+    ctx.globalAlpha = alpha
+    ctx.fillStyle = 'rgba(13, 35, 64, 0.82)'
+    this.roundRectPath(x, y, pillW, pillH, pillH / 2)
+    ctx.fill()
+    ctx.fillStyle = 'white'
+    ctx.font = `bold ${font}px Arial`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.fillText(this.toastText, x + pillW / 2, y + pillH / 2 + 1)
+    ctx.restore()
+  }
+
   private createStarBurst(x: number, y: number, color: string) {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < (this.reducedMotion ? 6 : 20); i++) {
       const angle = (Math.PI * 2 * i) / 20
       const speed = 2 + Math.random() * 3
       this.particles.push(new Particle(
