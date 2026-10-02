@@ -1,8 +1,8 @@
-# Two-Player Platform Adventure
+# Star Switch: Two-Player Platform Adventure
 
 A browser platformer built with TypeScript and HTML Canvas. Play with two players on one keyboard, or choose the cyan character or orange character for single-player touch play on a phone or iPad. Collect stars, dodge spikes, stomp enemies, and find the glowing switch that opens the way to the rainbow exit.
 
-[Play the web game](https://harbin-agam-game.vercel.app/) · [Android edition and review status](https://github.com/Jsingh-26/harbin-agam/pull/1)
+[Play the web game](https://harbin-agam-game.vercel.app/) · [Android edition and review status](https://github.com/Jsingh-26/star-switch/pull/1)
 
 ![The cyan character and orange character beside platforms, stars, enemies, spikes, a glowing switch, and the rainbow exit.](docs/images/gameplay.png)
 
@@ -14,7 +14,7 @@ A browser platformer built with TypeScript and HTML Canvas. Play with two player
 | Play modes | Laptop/desktop: two players play simultaneously on one keyboard. Phone/iPad: single-player with a character choice and on-screen buttons. |
 | Difficulty | Easy / Medium / Hard; higher settings add stars, enemies, and spikes and increase enemy speed. |
 | Hosting | Vercel |
-| Android | A separate Capacitor edition lives in a review branch under [PR #1](https://github.com/Jsingh-26/harbin-agam/pull/1). It is not merged into `main`. |
+| Android | A separate Capacitor edition lives in a review branch under [PR #1](https://github.com/Jsingh-26/star-switch/pull/1). It is not merged into `main`. |
 
 ## Gameplay
 
@@ -40,8 +40,8 @@ Choose Laptop, Phone, or iPad on the opening screen, then choose a difficulty. P
 Use **Node.js 22.12+** and npm. The locked Vite version requires a recent Node.js release.
 
 ```bash
-git clone https://github.com/Jsingh-26/harbin-agam.git platform-adventure
-cd platform-adventure
+git clone https://github.com/Jsingh-26/star-switch.git
+cd star-switch
 npm install
 npm run dev
 ```
@@ -73,3 +73,5 @@ The web game runs in the browser with no backend, account system, or saved progr
 ## License
 
 MIT
+
+Made for Harbin and Agam.
