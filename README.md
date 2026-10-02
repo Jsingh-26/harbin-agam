@@ -1,74 +1,53 @@
-# Harbin & Agam
+# Star Switch
 
-A polished kids web game built with Vite and TypeScript. No backend, login, or saved progress.
+A two-player platformer that runs in the browser: two kids share one laptop keyboard, or one plays with touch buttons on a phone or iPad. Built with TypeScript and HTML Canvas, no backend.
 
-**Harbin** (girl, cyan `#00CED1`, older) and **Agam** (boy, orange `#FFA500`, younger).
+[![CI](https://github.com/Jsingh-26/star-switch/actions/workflows/ci.yml/badge.svg)](https://github.com/Jsingh-26/star-switch/actions/workflows/ci.yml)
 
-## Devices
+[Play it](https://star-switch.vercel.app/) · [Android edition](#android-edition)
 
-Pick Laptop, Phone, or iPad on the first screen.
+![The cyan character and orange character beside platforms, stars, enemies, spikes, a glowing switch, and the rainbow exit.](docs/images/gameplay.png)
 
-- Laptop / desktop: same-screen 2-player (not turns). Keyboard. Both kids play together.
-- Phone: single-player with on-screen Left, Right, Jump, and Action. Pick Harbin or Agam. Only that child is in the level.
-- iPad: same as phone (touch, 1-player, character pick).
+## How it works
 
-Two-player is only on laptop. iPad is treated like a phone (1P touch).
+- **One canvas, one loop.** `src/game.ts` runs a fixed-step game loop (60 updates a second), handles collisions, the camera, stars, the switch and door, respawns and the win check.
+- **Entities are small classes** in `src/entities/` (player, platform, star, enemy, spike, switch, door, exit, particles), each drawing and updating itself.
+- **The opening screen picks the mode.** Laptop: both players at once on one keyboard. Phone or iPad: one player, a character choice and on-screen buttons. Easy / Medium / Hard add stars, enemies and spikes and speed up enemies.
+- **Sound is generated in the browser.** `src/audio.ts` makes the effects and music with the Web Audio API and speaks praise with the Web Speech API.
+- **Goal:** collect stars, stomp enemies, press Action at the glowing switch to open the door, then walk into the rainbow exit.
 
-The canvas fits the screen (contain / letterbox) on phones, iPad, and desktop. No 80 percent browser zoom needed.
+## Decisions
 
-## How to win
+- **Fixed time step instead of one update per frame.** On 120 Hz screens the game ran faster than on 60 Hz ones. Updating physics in fixed 1/60 s steps (capped at 5 per frame) keeps the speed the same on every screen.
+- **On phones the camera follows the player instead of shrinking the level.** Touch play is single-player, and the camera stays zoomed in on that character rather than scaling the whole desktop level down to fit a small screen.
+- **One codebase for web and Android.** The Android app is the same game bundled offline with Capacitor; native-only pieces (speech, update checks) are picked at runtime in `src/mobile.ts`, so the browser build never loads them.
 
-1. Move and jump around the level.
-2. Grab sparkling stars (spoken praise plus a fullscreen overlay).
-3. Stand near the glowing switch and press ACTION to OPEN THE DOOR.
-4. Walk through the rainbow EXIT.
+## Controls
 
-There is a mute button for speech and sound.
+| Player or device | Move left / right | Jump | Action (open the door at the switch) |
+| --- | --- | --- | --- |
+| Cyan character (keyboard) | A / D | W | S |
+| Orange character (keyboard) | Left / Right arrows | Up arrow | Down arrow |
+| Phone / iPad (one player) | On-screen Left / Right | On-screen JUMP | On-screen ACTION |
 
-## Laptop controls (2-player)
+## Run locally
 
-Harbin (cyan): W jump, A left, D right, S ACTION
+Needs **Node.js 22.12+** and npm.
 
-Agam (orange): Up jump, Left, Right, Down ACTION
+```bash
+git clone https://github.com/Jsingh-26/star-switch.git
+cd star-switch
+npm install
+npm run dev        # open the URL Vite prints
+npm run build      # TypeScript check + production build into dist/
+npm run preview    # serve the built files
+```
 
-Both play at the same time.
+**Tests:** there are no automated tests yet. CI runs `npm ci` and `npm run build` (which includes the TypeScript compiler) on every push to `main` and every pull request.
 
-## Phone / iPad controls (1-player)
+## Android edition
 
-Big thumb buttons: Left / Right to move, JUMP, ACTION to open the door.
-Hold a button to keep moving. They sit in the corners so they do not cover the whole playfield.
-
-## Difficulty
-
-Easy / Medium / Hard (more stars, enemies, and spikes on harder settings).
-
-## Features
-
-- Juice: squash/stretch, particles, camera shake
-- Glowing switch prompt: press ACTION next to it to open the brown door, then walk through the rainbow EXIT
-- Enemies defeated by stomping from above; spikes cost a heart
-- Out of hearts? Respawn at the start with full hearts (stars kept) and a spoken "Try again"
-- Web Speech API praise ("Well done" plus the child's name with Punjabi pronunciation) plus fullscreen overlay on stars
-- Fixed-timestep updates: same game speed on 60 Hz and 120 Hz+ screens
-- High-DPI sharp rendering in 2-player mode
-- Mute button
-
-## Running locally
-
-Need Node.js 18+.
-
-Use the scripts in package.json: install, dev, and production build. Output is in dist/ for static hosts.
-
-## Technical details
-
-- Vite plus TypeScript, canvas rendering
-- Web Audio API plus Web Speech API
-- Pure client-side, no database
-- pointerdown / pointerup virtual controls; browser scroll and pinch-zoom blocked on game buttons
-
-## Android mobile edition
-
-The Android edition is a bundled, offline Capacitor app with package ID `com.jsingh26.harbinagam`. The existing Vite web app remains the default browser experience. Native-only UI is selected at runtime through Capacitor.
+A bundled, offline Capacitor app (package ID `com.jsingh26.harbinagam`). The browser game stays the default; native-only UI is chosen at runtime.
 
 Build requirements: Node 22+, JDK 21, Android SDK 36.
 
@@ -79,4 +58,23 @@ npx cap sync android
 ./android/gradlew -p android assembleDebug
 ```
 
-The review APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`.
+The APK is written to `android/app/build/outputs/apk/debug/app-debug.apk`. Private release builds go through the manual `Android - Firebase App Distribution` workflow (setup in `docs/firebase-updates.md`); it has not been run yet.
+
+## Project structure
+
+| Path | Purpose |
+| --- | --- |
+| `index.html` | HTML shell and module entry point |
+| `src/main.ts` | Device, difficulty and character selection; instructions and win screens; touch buttons; mute control |
+| `src/game.ts` | Game loop, level setup, camera and canvas sizing, collisions, HUD |
+| `src/entities/` | Game objects and their drawing and behavior |
+| `src/audio.ts` | Web Audio sound and music, Web Speech praise |
+| `src/style.css` | Screen layouts, buttons, touch controls |
+| `src/web.ts`, `src/mobile.ts` | Browser-only and Android-only pieces, picked at runtime |
+| `android/`, `capacitor.config.ts` | Capacitor Android project |
+
+## License
+
+MIT
+
+Made for Harbin and Agam.
